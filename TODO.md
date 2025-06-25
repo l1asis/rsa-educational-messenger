@@ -1,0 +1,91 @@
+# Project TODO
+
+## General
+- [ ] Replace all `place()` with `grid()` or `pack()` for better window management.
+- [ ] Implement a `Report User` feature.
+- [ ] Forbid or limit changing the username after registration.
+- [ ] Allow users to register with a username and password.
+- [ ] Notify users when the server is closing the connection.
+- [ ] Handle client disconnects and notify all other clients.
+- [ ] Move custom tkinter widgets to separate classes for better organization.
+- [ ] Add `placeholder_style` support to the `PlaceholderEntry` class.
+- [ ] Enhance the `Entry` widget to support emoji and custom key bindings like `Ctrl+Del`.
+- [ ] Add a `pyproject.toml` file for better dependency management and project metadata.
+
+## Login Panel
+- [X] Name of the program.
+- [X] Welcome message.
+- [X] IP and PORT entries.
+- [X] Connect button.
+- [X] Country selection combobox.
+- [X] Query server for username and name.
+- [X] Waiting panel for user approval.
+- [ ] Implement mandatory RSA key setup during login.
+- [ ] Add a button to request a new name after connection.
+- [ ] Display random facts or math exercises in the waiting panel.
+- [ ] Add emoji support to the `Text` widget.
+- [X] Implement custom events like `<<CursorChange>>` for `Text` and `Entry` widgets.
+
+## Client
+- **File Menu**
+  - [ ] Settings
+  - [ ] Exit
+- **Addons/Toolkit**
+  - **Prime Factorization**
+    - [ ] Estimate calculation time.
+    - [ ] Add a `Copy` button for the factorization result.
+    - [ ] Implement a step-by-step visualization for the factorization process.
+      - [ ] Trial Division
+      - [ ] Pollard's Rho Algorithm
+      - [ ] Pollard's P-1 Algorithm
+      - [ ] Elliptic Curve Factorization
+      - [ ] Quadratic Sieve
+      - [ ] General Number Field Sieve (GNFS)
+    - [ ] Show a progress bar during factorization.
+  - **RSA Key Generator**
+    - [X] Implement key generation using the RSA algorithm.
+    - [ ] Implement key generation using the RSA from `cryptography` library.
+    - [ ] Add options for key size and encryption padding.
+  - **Prime Number Finder**
+    - [ ] Add `Random` and `Copy` buttons.
+    - [ ] Allow setting the number of bits or a range for prime generation.
+    - [ ] Show primality test results with color-coding (red for composite, green for prime).
+    - [ ] Implement a step-by-step visualization for each primality test algorithm.
+      - [ ] Trial Division
+      - [ ] Sieve of Eratosthenes
+      - [X] Fermat Primality Test
+      - [X] Lucas Primality Test
+      - [X] Miller-Rabin Primality Test
+      - [X] Solovay-Strassen Primality Test
+      - [ ] Frobenius Primality Test
+      - [X] Baillie-PSW Primality Test
+      - [ ] Elliptic Curve Primality Proving (ECPP)
+      - [ ] Pocklington-Lehmer Primality Test
+      - [ ] AKS Primality Test
+  - **Cipher Attacker**
+    - [ ] Implement various attacks on RSA.
+- **Security**
+  - [ ] Implement a standardized padding scheme like PKCS#1.
+  - [ ] Add a secure key exchange mechanism (for hybrid encryption).
+- **Chat Panel**
+  - [ ] Implement message encryption and decryption.
+  - [ ] Add support for group chats.
+  - [ ] Implement message signing and verification.
+  - [ ] Add a message history feature with search functionality.
+  - [ ] Implement a notification system for new messages.
+  - [ ] Add a user profile panel with options to change username, password, and view RSA keys.
+  - [ ] Implement a user blocking feature.
+  - [ ] Add a `Help` menu with documentation and FAQs.
+- **Settings Panel**
+  - [ ] Add options for customizing the GUI theme and colors.
+  - [ ] Implement a language selection feature.
+    - [X] Improve it by using a centralized translation file.
+    - [X] Make it dynamic (seamless), allowing users to change languages without restarting the application.
+  - [ ] Add a `Dark Mode` toggle.
+  - [ ] Add a `Reset to Default` button for settings.
+  - [ ] Implement a backup and restore feature for user settings.
+
+## Server
+- [ ] Add a `MAX_CONNECTIONS` constant to limit the number of concurrent users.
+- [ ] Limit the number of connections from a single IP address.
+- [ ] Improve logging with more detailed information.

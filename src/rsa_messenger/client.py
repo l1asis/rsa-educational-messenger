@@ -268,9 +268,8 @@ class ClientApp(tk.Tk):
                     self.profile.name = profile_data["name"]
                     self.show_waiting_panel()
                 elif msg_type == MessageType.APPROVE_USER:
-                    if self.profile:
-                        self.profile.is_approved = True
-                        self.show_chats_panel()
+                    self.profile.is_approved = True
+                    self.show_chats_panel()
                 elif msg_type == MessageType.SEND_READY_USERS:
                     user_list = json.loads(data)
                     for profile_data in user_list:
@@ -280,7 +279,7 @@ class ClientApp(tk.Tk):
                 elif msg_type == MessageType.BROADCAST_USER:
                     profile_data = json.loads(data)
                     username, name, public_key = profile_data["username"], profile_data["name"], tuple(profile_data["public_key"])
-                    if self.profile and username != self.profile.username and username not in self.other_clients:
+                    if username != self.profile.username and username not in self.other_clients:
                         self.other_clients[username] = Profile(username, name, public_key)
                         if self.chat_frame:
                             # Insert the new user into the user listbox
@@ -288,7 +287,7 @@ class ClientApp(tk.Tk):
                         self.chats[username] = []
                         logging.info(f"New user connected: {username}")
                 elif msg_type == MessageType.GET_MESSAGE:
-                    if self.profile and self.profile.private_key:
+                    if self.profile.private_key:
                         message_data = json.loads(data, cls=JSONBytesDecoder)
                         username = message_data["from"]
                         message = message_data["message"]
@@ -881,10 +880,9 @@ class RsaKeyGeneratorWindow(tk.Toplevel):
 
         self.key_manager_frame = ttk.Labelframe(content, text="Key Manager:")
         self.key_manager_listbox = ScrollableListboxFrame(self.key_manager_frame)
-        if self.master.profile:
-            for key_name in self.master.profile.keys.keys():
-                if not self.key_manager_listbox.listbox.index(key_name) >= 0:  # Avoid duplicates
-                    self.key_manager_listbox.listbox.insert(tk.END, key_name)
+        for key_name in self.master.profile.keys.keys():
+            if not self.key_manager_listbox.listbox.index(key_name) >= 0:  # Avoid duplicates
+                self.key_manager_listbox.listbox.insert(tk.END, key_name)
         self.key_manager_listbox.listbox.config(selectmode="browse")
         # TODO: Show button that should print the selected key in `self.public_key_text` and `self.private_key_text`
         # TODO: Buttons to temporarily hide and show the private key (should be enabled by default? with some action required?)
@@ -982,15 +980,12 @@ class RsaKeyGeneratorWindow(tk.Toplevel):
             if not name:
                 messagebox.showerror("Error", "Key pair name cannot be empty.") # type: ignore
             else:
-                if self.master.profile:
-                    if (self.last_public_key, self.last_private_key) in self.master.profile.keys.values():
-                        messagebox.showerror("Error", "This RSA key pair already exists in the profile.") # type: ignore
-                    else:
-                        self.master.profile.keys[name] = (self.last_public_key, self.last_private_key)
-                        self.key_manager_listbox.listbox.insert(tk.END, name)
-                        self.key_manager_listbox.listbox.see(tk.END)
+                if (self.last_public_key, self.last_private_key) in self.master.profile.keys.values():
+                    messagebox.showerror("Error", "This RSA key pair already exists in the profile.") # type: ignore
                 else:
-                    messagebox.showerror("Error", "No profile found to save the RSA keys.")
+                    self.master.profile.keys[name] = (self.last_public_key, self.last_private_key)
+                    self.key_manager_listbox.listbox.insert(tk.END, name)
+                    self.key_manager_listbox.listbox.see(tk.END)
     
     def use_rsa_keys(self):
         """Use the selected RSA keys from the key manager."""
@@ -999,7 +994,7 @@ class RsaKeyGeneratorWindow(tk.Toplevel):
             messagebox.showerror("Error", "No RSA keys selected.") # type: ignore
             return
         key_name = self.key_manager_listbox.listbox.get(selected[0])
-        if self.master.profile and key_name in self.master.profile.keys:
+        if key_name in self.master.profile.keys:
             self.master.profile.public_key, self.master.profile.private_key = self.master.profile.keys[key_name]
             self.master.profile.has_set_up_key = True
             self.loop.create_task(self.master.transmit_message(MessageType.SEND_PUBLIC_KEY, json.dumps({
@@ -1015,7 +1010,7 @@ class RsaKeyGeneratorWindow(tk.Toplevel):
             messagebox.showerror("Error", "No RSA keys selected.") # type: ignore
         else:
             key_name = self.key_manager_listbox.listbox.get(selected[0])
-            if self.master.profile and key_name in self.master.profile.keys:
+            if key_name in self.master.profile.keys:
                 key_public, key_private = self.master.profile.keys[key_name]
                 if (self.master.profile.public_key == key_public and self.master.profile.private_key == key_private):
                     messagebox.showerror("Error", "Cannot remove currently used RSA keys.") # type: ignore
@@ -1036,7 +1031,7 @@ class RsaKeyGeneratorWindow(tk.Toplevel):
             messagebox.showerror("Error", "No RSA keys selected.") # type: ignore
             return
         key_name = self.key_manager_listbox.listbox.get(selected[0])
-        if self.master.profile and key_name in self.master.profile.keys:
+        if key_name in self.master.profile.keys:
             key_public, key_private = self.master.profile.keys[key_name]
             self.public_key_text.config(state="normal")
             self.private_key_text.config(state="normal")
@@ -1596,19 +1591,18 @@ class CipherViewerWindow(tk.Toplevel):
 
         identity = self.selected_key_identity.get()
         public_key = None
-        if self.master.profile:
-            if identity == "current_session_key":
-                public_key = self.master.profile.public_key
-            elif identity.startswith("personal_key_"):
-                key_name = identity.removeprefix("personal_key_")
-                key_pair = self.master.profile.keys.get(key_name)
-                if key_pair:
-                    public_key = key_pair[0] # Public key is the first element
-            elif identity.startswith("other_user_key_"):
-                username = identity.removeprefix("other_user_key_")
-                profile = self.master.other_clients.get(username)
-                if profile:
-                    public_key = profile.public_key
+        if identity == "current_session_key":
+            public_key = self.master.profile.public_key
+        elif identity.startswith("personal_key_"):
+            key_name = identity.removeprefix("personal_key_")
+            key_pair = self.master.profile.keys.get(key_name)
+            if key_pair:
+                public_key = key_pair[0] # Public key is the first element
+        elif identity.startswith("other_user_key_"):
+            username = identity.removeprefix("other_user_key_")
+            profile = self.master.other_clients.get(username)
+            if profile:
+                public_key = profile.public_key
         
         if not public_key:
             messagebox.showerror("Error", "No valid public key selected or available.")
@@ -1651,17 +1645,16 @@ class CipherViewerWindow(tk.Toplevel):
 
         identity = self.selected_key_identity.get()
         private_key = None
-        if self.master.profile:
-            if identity == "current_session_key":
-                private_key = self.master.profile.private_key
-            elif identity.startswith("personal_key_"):
-                key_name = identity.removeprefix("personal_key_")
-                key_pair = self.master.profile.keys.get(key_name)
-                if key_pair:
-                    private_key = key_pair[1] # Private key is the second element
-            elif identity.startswith("other_user_key_"):
-                messagebox.showerror("Error", "Cannot decode using another user's public key.")
-                return
+        if identity == "current_session_key":
+            private_key = self.master.profile.private_key
+        elif identity.startswith("personal_key_"):
+            key_name = identity.removeprefix("personal_key_")
+            key_pair = self.master.profile.keys.get(key_name)
+            if key_pair:
+                private_key = key_pair[1] # Private key is the second element
+        elif identity.startswith("other_user_key_"):
+            messagebox.showerror("Error", "Cannot decode using another user's public key.")
+            return
 
         if not private_key:
             messagebox.showerror("Error", "No valid private key selected or available for decryption.")

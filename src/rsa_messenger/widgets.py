@@ -221,3 +221,111 @@ class ScrollableTreeviewFrame(ttk.Frame):
         self.vscrollbar.config(command=self.treeview.yview) # type: ignore
         self.vscrollbar.grid(row=0, column=1, sticky=tk.NS)
         self.treeview.grid(row=0, column=0, sticky=tk.NSEW)
+
+
+class ChatMessageFrame(ttk.Frame):
+    """A frame to display a chat message."""
+    def __init__(
+        self,
+        master: tk.Misc | None = None,
+        message: str = "",
+        sender: str = "",
+        timestamp: str = "",
+        **kwargs: Any
+    ):
+        super().__init__(master, **kwargs)
+        self.message_label = ttk.Label(self, text=message, font=("Helvetica", 11), background="#f0f0f0", wraplength=300, justify=tk.LEFT, padding=(1, 1))
+        self.sender_label = ttk.Label(self, text=sender, font=("Helvetica", 10, "bold"), foreground="#555", background="#f0f0f0", padding=(1, 1))
+        self.timestamp_label = ttk.Label(self, text=timestamp, font=("Helvetica", 8), foreground="#999", background="#f0f0f0", padding=(5, 1))
+        self.edit_entry = ttk.Entry(self, font=("Helvetica", 11), foreground="#000", background="#fff", justify=tk.LEFT)
+
+        # TODO: Add a custom style for the message label to make it look like a chat bubble
+        # TODO: Utilize FocusIn and FocusOut events to change the style of the message label when hovered or clicked
+        # TODO: Add a context menu for the message label to copy the message, reply, or delete it, or encode/decode with RSA
+        # TODO: (?) Add a feature to edit the message by clicking on it, which will turn it into an Entry widget
+        # TODO: (?) Add a feature to copy the message text partially utilizing the selection feature of the Text widget
+        # TODO: (?) Add logic to update the timestamp label to accurately reflect the time of the message, e.g., using `datetime` module and relative time
+        # FIXME: Timestamp clapping with the border of the frame
+        self.configure(borderwidth=1, relief=tk.RAISED)
+
+        # Set up bindings
+        self.message_label.bind("<Enter>", lambda e: self.message_label.configure(background="#e0e0e0"))
+        self.message_label.bind("<Leave>", lambda e: self.message_label.configure(background="#f0f0f0"))
+        self.message_label.bind("<Button-1>", lambda e: self.message_label.configure(background="#d0d0d0"))
+        self.message_label.bind("<ButtonRelease-1>", lambda e: self.message_label.configure(background="#e0e0e0"))
+        self.message_label.bind("<Button-3>", lambda e: self.show_context_menu(e))
+        self.message_label.bind("<Double-Button-1>", lambda e: self.edit_message())
+        self.edit_entry.bind("<Return>", lambda e: self.save_edit())
+        self.edit_entry.bind("<FocusOut>", lambda e: self.cancel_editing())
+
+        # Configure the grid layout
+        self.message_label.grid(row=1, column=0, sticky=tk.W)
+        self.sender_label.grid(row=0, column=0, sticky=tk.W)
+        self.timestamp_label.grid(row=1, column=1, sticky=tk.E, padx=(0, 1))
+
+    def show_context_menu(self, event: tk.Event):
+        """Show a context menu with options for the message."""
+        context_menu = tk.Menu(self, tearoff=0)
+        context_menu.add_command(label="Copy", command=lambda: self.copy_message())
+        context_menu.add_command(label="Reply", command=lambda: self.reply_to_message())
+        context_menu.add_command(label="Delete", command=lambda: self.delete_message())
+        context_menu.add_separator()
+        context_menu.add_command(label="Encode with RSA", command=lambda: self.encode_message())
+        context_menu.add_command(label="Decode with RSA", command=lambda: self.decode_message())
+        context_menu.add_separator()
+        context_menu.add_command(label="Edit", command=lambda: self.edit_message())
+        context_menu.add_command(label="Close", command=context_menu.unpost)
+        # Show the context menu at the mouse position
+        context_menu.post(event.x_root, event.y_root)
+
+    def copy_message(self):
+        """Copy the message text to the clipboard."""
+        self.master.clipboard_clear()
+        self.master.clipboard_append(self.message_label.cget("text"))
+        self.master.update()
+    
+    def reply_to_message(self):
+        """Reply to the message."""
+        pass
+
+    def delete_message(self):
+        """Delete the message."""
+        pass
+
+    def encode_message(self):
+        """Encode the message with RSA."""
+        pass
+
+    def decode_message(self):
+        """Decode the message with RSA."""
+        pass
+
+    def edit_message(self):
+        """Edit the message by turning it into an Entry widget."""
+        self.message_label.grid_forget()
+        self.edit_entry.delete(0, tk.END)
+        self.edit_entry.grid(row=1, column=0, sticky=tk.W)
+
+    def save_edit(self):
+        """Save the edited message."""
+        # TODO: Logic to save the edited message, e.g., send it to the server or update the local state
+        # TODO: Check if the message is not empty or not the same before saving
+        new_text = self.edit_entry.get()
+        self.message_label.configure(text=new_text)
+        self.edit_entry.grid_forget()
+        self.message_label.grid(row=1, column=0, sticky=tk.W)
+
+    def cancel_editing(self):
+        """Cancel editing and restore the original message."""
+        self.edit_entry.grid_forget()
+        self.message_label.grid(row=1, column=0, sticky=tk.W)
+
+if __name__ == "__main__":
+    # Example usage of the widgets
+    root = tk.Tk()
+    root.title("Example Widgets")
+
+    chat_message = ChatMessageFrame(root, message="Hello, this is a test message.", sender="User1", timestamp="12:00 PM")
+    chat_message.pack()
+    
+    root.mainloop()

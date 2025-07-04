@@ -1,25 +1,21 @@
-# RSA-Powered Messenger for Educational Purposes
+# RSA-Powered Messenger (Educational Project)
 
-## Disclaimer
+A `tkinter`-based chat application built to demonstrate the RSA encryption algorithm and related number theory concepts. This project was developed for a school presentation in Germany, aiming to provide a hands-on tool for understanding RSA in practice.
 
-**This project is for educational purposes only.**
-
-This application was developed during my school time in Germany to complement a presentation about the RSA algorithm. The primary goal is to provide a hands-on tool for understanding RSA and related number theory concepts. It is **not** a secure communication tool and should not be used for sensitive information.
-
-This project is a chat application that uses the RSA algorithm for encryption. It was created to make it easier to understand the RSA algorithm and other topics related to it. It includes a client with a graphical user interface (GUI) built using `tkinter` and a server to manage connections and message relay. The application also provides several cryptographic and number-theoretic tools to play around with.
+**⚠️ Important Disclaimer: This application is for educational purposes only and is NOT a secure communication tool. Do not use it for sensitive information.**
 
 ## Features
 
-- **RSA Encryption Demonstration**: Messages are encrypted using a basic RSA implementation, demonstrating how public-key cryptography works.
-- **Client-Server Architecture**: A central server handles user connections, message broadcasting, and user management.
-- **User-Friendly GUI**: The client application features a `tkinter`-based GUI for ease of use, including panels for chat, user profiles, and various cryptographic tools.
-- **Cryptographic Toolkit**: The application includes a suite of tools for number theory and cryptography enthusiasts:
+- **RSA Encryption Demonstration**: See RSA in action! Messages are encrypted using a basic RSA implementation, showing how public-key cryptography works.
+- **Client-Server Architecture**: Features a central server handling user connections, message broadcasting, and user management.
+- **User-Friendly GUI**: The `tkinter`-based client provides an intuitive interface with dedicated panels for chat, user profiles, and cryptographic tools.
+- **Integrated Cryptographic Toolkit**: Explore number theory and cryptography with built-in tools:
   - **Prime Number Generator**: Find random, next, or previous prime numbers.
   - **Prime Factorization Tool**: Factorize large numbers and estimate the time required.
   - **RSA Key Generator**: Create your own RSA public and private key pairs.
   - **Cipher Inspector**: View and analyze encrypted messages.
-- **User Management**: The server includes a control panel to approve, ban, or kick users.
-- **Internationalization**: Support for multiple languages with translations managed in a centralized file.
+- **Server User Management**: The server includes a control panel to approve, ban, or kick users.
+- **Localizable Interface**: Supports multiple languages with translations managed in a centralized file.
 
 ## How to Run
 

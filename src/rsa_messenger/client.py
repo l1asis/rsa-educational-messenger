@@ -16,6 +16,8 @@ from .constants import *
 from .crypto import *
 from .translations import TRANSLATIONS
 from .utils import get_center_geometry, shorten_string, JSONBytesEncoder, JSONBytesDecoder, format_time
+from .widgets import *
+from .networking import NetworkClient
 
 LOGGING_FORMAT = u"%(asctime)-28s %(filename)-20s %(levelname)s: %(message)s"
 
@@ -42,9 +44,11 @@ class ClientApp(tk.Tk):
 
         self.other_clients: dict[str, Profile] = {}
         self.chats: dict[str, list[str]] = {}
-
         self.current_window = ClientWindow.CONNECT
         self.loop = loop
+        self.incoming_queue: asyncio.Queue[Any] = asyncio.Queue()
+        self.network_client = NetworkClient(self.incoming_queue, self.loop)
+        self.profile: Profile | None = None
 
         # self.iconbitmap("icon.ico")
         self.title("Client App | Connect Page")
@@ -73,6 +77,202 @@ class ClientApp(tk.Tk):
             )
         self.menubar.add_cascade(menu=self.language_menu, label="Language")
         self.config(menu=self.menubar)
+
+        ... # Initialize ConnectionFrame
+
+        self.update_language()
+        self.after(10, self.poll_asyncio) # Start polling the asyncio event loop
+        self.after(100, self.process_incoming_messages) # Start processing network messages
+
+    
+    def open_settings(self):
+        ...
+
+    def on_close(self):
+        ...
+
+    def open_prime_factorization(self):
+        """Open the Prime Factorization window."""
+        win = tk.Toplevel(self)
+
+    def open_prime_numbers_finder(self):
+        """Open the Prime Numbers Finder window."""
+        win = tk.Toplevel(self)
+        
+
+
+    def open_rsa_key_generator(self):
+        """Open the RSA Key Generator window."""
+        win = tk.Toplevel(self)
+        
+
+    def open_cipher_viewer(self):
+        """Open the Cipher Viewer window."""
+        win = tk.Toplevel(self)
+        
+
+    def open_cipher_attacker(self):
+        win = tk.Toplevel(self)
+        win.title("Cipher Attacker")
+        ttk.Label(win, text="Cipher Attacker (Coming Soon)", style="h4.TLabel").pack(padx=20, pady=20)
+        ttk.Button(win, text="Close", command=win.destroy).pack(pady=10)
+
+    def show_license(self):
+        ...
+
+    def goto_repository(self):
+        ...
+
+    def show_about(self):
+        ...
+
+    def show_howto(self):
+        ...
+
+    def update_all_chats(self):
+        ...
+
+    def update_active_chat(self):
+        ...
+
+    def show_waiting_panel(self):
+        # Destroy all widgets except the root
+        for child in self.winfo_children():
+            if child not in (self.menubar, self.language_menu):
+                # Exclude the menubar and language menu from destruction
+                child.destroy()
+
+    
+    def show_chats(self):
+        # Destroy all widgets except the root
+        for child in self.winfo_children():
+            if child not in (self.menubar, self.language_menu):
+                # Exclude the menubar and language menu from destruction
+                child.destroy()
+
+
+    def on_click_connect(self):
+        server_host = self.host_entry.get()
+        server_port = self.port_entry.get()
+        if not server_host or not server_port:
+            messagebox.showerror("Error", "Server IP or Port is empty.") # type: ignore
+        elif len(octets := server_host.split(".")) != 4 or not all(octet.isdecimal() for octet in octets):
+            messagebox.showerror( # type: ignore
+                "Error", "[ERROR] - IPv4 should be written in dot-decimal notation and consist of four octets (e.g. `255.255.255.255`)."
+            ) 
+        elif not server_port.isdecimal():
+            messagebox.showerror("Error", "[ERROR] - Port numbers should be decimal integers (e.g. `8080`).") # type: ignore
+        else:
+            self.loop.create_task(self.start_client(server_host, int(server_port)))
+
+    async def start_client(self, server_host: str, server_port: int):
+        connected = await self.network_client.connect(server_host, server_port)
+        if connected:
+            await self.network_client.transmit_message(MessageType.SEND_COUNTRY, self.country.get().encode("utf-8"))
+
+    async def transmit_message(self, msg_type: int, data: bytes = b""):
+        await self.network_client.transmit_message(msg_type, data)
+
+    def poll_asyncio(self):
+        try:
+            self.loop.call_soon(self.loop.stop)
+            self.loop.run_forever()
+        except RuntimeError:
+            pass
+        self.after(10, self.poll_asyncio)
+
+    def process_incoming_messages(self):
+        """Process messages from the network queue."""
+        while not self.incoming_queue.empty():
+            try:
+                msg_type, data = self.incoming_queue.get_nowait()
+
+                # Handle special non-MessageType events
+                if isinstance(msg_type, str):
+                    if msg_type == "connection_error":
+                        messagebox.showerror("Connection Error", f"Failed to connect to the server: {data}") # type: ignore
+                    elif msg_type == "connection_lost":
+                        messagebox.showinfo("Connection Lost", "The connection to the server was lost.") # type: ignore
+                        # TODO: Reset the UI to the connect screen
+                    continue
+
+                # Handle regular MessageType events
+                logging.debug(f"UI processing message type {MessageType(msg_type).name}")
+
+                if msg_type == MessageType.SEND_PROFILE:
+                    profile_data = json.loads(data)
+                    self.profile = Profile(profile_data["username"], profile_data["name"])
+                    self.show_waiting_panel()
+                elif msg_type == MessageType.APPROVE_USER:
+                    if self.profile:
+                        self.profile.is_approved = True
+                        self.show_chats()
+                elif msg_type == MessageType.SEND_READY_USERS:
+                    user_list = json.loads(data)
+                    for profile_data in user_list:
+                        self.other_clients[profile_data["username"]] = Profile(profile_data["username"], profile_data["name"], tuple(profile_data["public_key"]))
+                        self.chats[profile_data["username"]] = []
+                    self.update_all_chats() # A method to refresh the user listbox
+                elif msg_type == MessageType.BROADCAST_USER:
+                    profile_data = json.loads(data)
+                    username, name, public_key = profile_data["username"], profile_data["name"], tuple(profile_data["public_key"])
+                    if self.profile and username != self.profile.username and username not in self.other_clients:
+                        self.other_clients[username] = Profile(username, name, public_key)
+                        self.user_listbox.insert(tk.END, username)
+                        self.chats[username] = []
+                        logging.info(f"New user connected: {username}")
+                elif msg_type == MessageType.GET_MESSAGE:
+                    if self.profile and self.profile.private_key:
+                        message_data = json.loads(data, cls=JSONBytesDecoder)
+                        username = message_data["from"]
+                        message = message_data["message"]
+                        if username in self.other_clients:
+                            decrypted_message = int_to_str(chunked_rsa_decrypt(message, self.profile.private_key))
+                            self.chats[username].append(f"{username}: {decrypted_message}\n")
+                            self.update_active_chat() # A method to refresh the current chat view
+
+            except asyncio.QueueEmpty:
+                pass # Should not happen due to the while loop condition
+            except Exception as e:
+                logging.error(f"Error processing message from queue: {e}")
+        
+        self.after(100, self.process_incoming_messages)
+
+    def update_language(self):
+        if self.current_window & ClientWindow.CONNECT:
+            t = TRANSLATIONS["client"]["connect"][self.language.get()]
+            self.title(t["title"])
+            texts: list[str] = [
+                "RSA Demonstration Messenger",
+                t["welcome"],
+                t["info"],
+                t["rule1"],
+                t["rule2"],
+                t["rule3"],
+                t["rule4"],
+                t["rule5"],
+            ]
+            for label, text in zip(self.info_labels, texts):
+                label.config(text=text)
+            self.country_label.config(text=t["country"])
+            self.host_label.config(text=t["server_ip"])
+            self.port_label.config(text=t["server_port"])
+            self.connect_button.config(text=t["connect"])
+        elif self.current_window & ClientWindow.WAITING:
+            t = TRANSLATIONS["client"]["waiting"][self.language.get()]
+            self.title(t["title"])
+            self.waiting_label.config(text=t["waiting_for_approval"])
+            self.just_wait_button.config(text=t["just_wait"])
+            self.fact_label.config(text=t["facts"][self.last_fact])
+
+
+
+
+class ConnectFrame(ttk.Frame):
+    def __init__(self, master: ClientApp, loop: asyncio.AbstractEventLoop):
+        self.master = master  # HACK: So the master (ClientApp) methods will be accessible.
+        super().__init__(master=master)
+        self.loop = loop
 
         # Info labels (store references for language switching)
         self.info_labels = [
@@ -103,8 +303,8 @@ class ClientApp(tk.Tk):
         self.host_frame = ttk.Frame(self)
         self.host_label = ttk.Label(self.host_frame, style="h5.TLabel")
         self.host_entry = PlaceholderEntry(self.host_frame, placeholder="e.g. 127.0.0.1", font=("Roboto", 11), placeholder_font=("Roboto", 11, "italic"), char_limit=15)
-        self.host_label.grid(row=0, column=0, sticky=tk.W) # self.host_label.pack(side=tk.LEFT)
-        self.host_entry.grid(row=0, column=1, sticky=tk.W) # self.host_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.host_label.grid(row=0, column=0, sticky=tk.W)
+        self.host_entry.grid(row=0, column=1, sticky=tk.W)
         self.host_frame.grid(row=(row := row + 1), column=0, columnspan=2, sticky=tk.W, padx=(40, 0), pady=(5, 0))
         
         self.port_frame = ttk.Frame(self)
@@ -114,18 +314,259 @@ class ClientApp(tk.Tk):
         self.port_entry.grid(row=0, column=1, sticky=tk.W)
         self.port_frame.grid(row=(row := row + 1), column=0, columnspan=2, sticky=tk.W, padx=(23, 0), pady=(5, 0))
 
-        self.connect_button = ttk.Button(self, width=8, command=self.on_click_connect, style="h5.bold.TButton")
+        self.connect_button = ttk.Button(self, width=8, command=self.master.on_click_connect, style="h5.bold.TButton")
         self.connect_button.grid(row=(row := row + 1), column=0, sticky=tk.W, padx=(115, 0), pady=(10, 0))
 
+
+
+class WaitingFrame(ttk.Frame):
+    def __init__(self, master: ClientApp, loop: asyncio.AbstractEventLoop):
+        self.master = master  # HACK: So the master (ClientApp) methods will be accessible.
+        super().__init__(master=master)
+        self.loop = loop
+
+        self.master.title("Client App | Waiting for Approval")
+        self.master.geometry(get_center_geometry(375, 205, self.winfo_screenwidth(), self.winfo_screenheight()))
+        # self.current_window = ClientWindow.WAITING
+
+        self.waiting_label = ttk.Label(self, style="h3.TLabel")
+        self.waiting_label.pack(side=tk.TOP, pady=(10, 5))
+        self.fact_label = ttk.Label(self, style="h5.TLabel", wraplength=325)
+        self.fact_label.pack(fill=tk.Y, side=tk.TOP, expand=True, pady=(0, 5))
+        self.just_wait_button = ttk.Button(self, command=self.update_fact, style="h5.bold.TButton")
+        self.just_wait_button.pack(side=tk.TOP, pady=(0, 15))
+        self.update_fact()
         self.update_language()
-        self.after(10, self.poll_asyncio) # Start polling the asyncio event loop
 
-    
-    def open_settings(self):
-        ...
+    def get_random_fact(self) -> str:
+        self.last_fact = random.randint(0, len(TRANSLATIONS["client"]["waiting"][self.language.get()]["facts"]) - 1)
+        return TRANSLATIONS["client"]["waiting"][self.language.get()]["facts"][self.last_fact]
 
-    def on_close(self):
-        ...
+    def update_fact(self):
+        self.fact_label.config(text=self.get_random_fact())
+
+
+class ChatFrame(ttk.Frame):
+    def __init__(self, master: ClientApp, loop: asyncio.AbstractEventLoop):
+        self.master = master  # HACK: So the master (ClientApp) methods will be accessible.
+        super().__init__(master=master)
+        self.loop = loop
+
+        self.master.title("Client App | Chats")
+        self.master.geometry(get_center_geometry(900, 600, self.winfo_screenwidth(), self.winfo_screenheight()))
+        # self.current_window = ClientWindow.CHAT
+
+        self.file_menu = tk.Menu(self.menubar, tearoff=False)
+        self.file_menu.add_command(
+            label="Settings",
+            command=self.open_settings
+        )
+        self.file_menu.add_separator()
+        self.file_menu.add_command(
+            label="Exit",
+            command=self.on_close
+        )
+        self.toolkit_menu = tk.Menu(self.menubar, tearoff=False)
+        self.toolkit_menu.add_command(
+            label="Prime Factorization",
+            command=self.open_prime_factorization
+        )
+        self.toolkit_menu.add_command(
+            label="Find Prime Numbers",
+            command=self.open_prime_numbers_finder
+        )
+        self.toolkit_menu.add_command(
+            label="Generate RSA Key",
+            command=self.open_rsa_key_generator
+        )
+        self.toolkit_menu.add_command(
+            label="Cipher viewer",
+            command=self.open_cipher_viewer
+        )
+        self.toolkit_menu.add_command(
+            label="Cipher attacker",
+            command=self.open_cipher_attacker
+        )
+        self.help_menu = tk.Menu(self.menubar, tearoff=False)
+        self.help_menu.add_command(
+            label="License",
+            command=self.show_license
+        )
+        self.help_menu.add_command(
+            label="Repository",
+            command=self.goto_repository
+        )
+        self.help_menu.add_command(
+            label="About",
+            command=self.show_about
+        )
+        self.help_menu.add_command(
+            label="How-to",
+            command=self.show_howto
+        )
+        self.menubar.insert_cascade(index=1, menu=self.file_menu, label="File")
+        self.menubar.insert_cascade(index=2, menu=self.toolkit_menu, label="Toolkit")
+        self.menubar.insert_cascade(index=4, menu=self.help_menu, label="Help")
+        
+        self.configure(menu=self.menubar)
+
+        # --- Chat UI Layout ---
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=3)
+        self.grid_columnconfigure(1, weight=1)
+
+        # Chat display (read-only)
+        self.chat_display = tk.Text(self, state="disabled", wrap="word", font=("Roboto", 12))
+        self.chat_display.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=(10, 5))
+        # TODO: Chat and chatting should be reworked to support both encoded and decoded messages and
+        #       switching between them.
+
+        # User list
+        self.user_listbox = tk.Listbox(self, width=20, font=("Roboto", 11))
+        for username in self.other_clients.keys():
+            self.user_listbox.insert(tk.END, username)
+        self.user_listbox.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=(10, 5))
+        self.user_listbox.bind("<<ListboxSelect>>", self.update_chat)
+
+        # Message entry and send button
+        self.message_entry = ttk.Entry(self, font=("Roboto", 12))
+        self.message_entry.grid(row=1, column=0, sticky="ew", padx=(10, 5), pady=(0, 10))
+        self.send_button = ttk.Button(self, text="Send", command=self.send_message, style="h5.bold.TButton")
+        self.send_button.grid(row=1, column=1, sticky="ew", padx=(5, 10), pady=(0, 10))
+
+    def update_chat(self, event):
+        # TODO: shouldn't it save the current selection in self, for situations
+        # when the selections if not active anymore?
+        selection = self.user_listbox.curselection()
+        if selection:
+            username = self.user_listbox.get(selection[0])
+            chat = self.chats[username]
+            self.chat_display.config(state="normal")
+            self.chat_display.delete("1.0", tk.END)
+            for message in chat:
+                self.chat_display.insert(tk.END, message)
+            self.chat_display.config(state="disabled")
+            self.chat_display.see(tk.END)
+
+    def send_message(self):
+        """Send a message to the chat."""
+        if not self.profile or not self.profile.has_set_up_key:
+            messagebox.showwarning("Warning", "You need to set up your RSA keys before sending messages.") # type: ignore
+            return
+        selection = self.user_listbox.curselection()
+        if not selection:
+            messagebox.showwarning("Warning", "No user selected to send the message to.") # type: ignore
+        else:
+            username = self.user_listbox.get(selection[0])
+            message = self.message_entry.get().strip()
+            if not message:
+                messagebox.showwarning("Warning", "Message cannot be empty.") # type: ignore
+            else:
+                if self.writer and self.profile:
+                    try:
+                        encrypted_message = chunked_rsa_encrypt(str_to_int(message), self.other_clients[username].public_key)
+                        self.loop.create_task(
+                            self.transmit_message(self.writer, MessageType.SEND_MESSAGE, json.dumps(
+                                {
+                                    "to": username,
+                                    "message": encrypted_message,
+                                }, cls=JSONBytesEncoder
+                            ).encode("utf-8")),
+                        )
+                        self.message_entry.delete(0, tk.END)
+                        logging.info(f"Sent message: {message}")
+                        self.chats[username].append(f"{self.profile.username}: {message}\n")
+                        self.chat_display.config(state="normal")
+                        self.chat_display.insert(tk.END, f"{self.profile.username}: {message}\n")
+                        self.chat_display.config(state="disabled")
+                        self.chat_display.see(tk.END)
+                    except Exception as e:
+                        logging.error(f"Failed to send message: {e}")
+                        messagebox.showerror("Error", f"Failed to send message: {e}") # type: ignore
+
+
+class PrimeFactorizationWindow(tk.Toplevel):
+    def __init__(self, master: ClientApp, loop: asyncio.AbstractEventLoop):
+        self.master = master
+        super().__init__(master=master)
+        self.loop = loop
+
+        self.title("Prime Factorization")
+        self.geometry(get_center_geometry(480, 600, self.winfo_screenwidth(), self.winfo_screenheight()))
+
+        # self.current_window |= ClientWindow.PRIME_FACTORIZATION
+
+        self.any_number = tk.StringVar()
+        self.any_number.trace_add("write", self.set_time_to_factor)
+        self.show_step_by_step = tk.BooleanVar(value=False)
+        self.algorithm = tk.StringVar(value="Trial Division")
+
+        menubar = tk.Menu(self)
+        self.config(menu=menubar)
+        settings_menu = tk.Menu(menubar, tearoff=False)
+        settings_menu.add_checkbutton(
+            label="Show step by step",
+            variable=self.show_step_by_step,
+        )
+        menubar.add_cascade(menu=settings_menu, label="Settings")
+
+        content = ttk.Frame(self, padding=(3,3,12,12))
+
+        self.prime_factorization_label = ttk.Label(content, text="Prime Factorization Tool", style="h4.TLabel")
+        self.prime_factorization_label.grid(row=0, column=0, sticky="w")
+
+        self.any_number_frame = ttk.Labelframe(content, text="Any number")
+        self.any_number_entry = ttk.Entry(self.any_number_frame, style="h5.TEntry", textvariable=self.any_number)
+        self.any_number_copy = ttk.Button(self.any_number_frame, text="Copy", style="h6.TButton", command=lambda: self.any_number_entry.clipboard_clear() or self.any_number_entry.clipboard_append(self.any_number_entry.get()))
+        self.any_number_paste = ttk.Button(self.any_number_frame, text="Paste", style="h6.TButton", command=lambda: self.any_number_entry.insert(tk.END, self.any_number_entry.clipboard_get() if self.any_number_entry.clipboard_get() else ""))
+        self.any_number_clear = ttk.Button(self.any_number_frame, text="Clear", style="h6.TButton", command=lambda: self.any_number_entry.delete(0, tk.END))
+        
+        self.algorithm_frame = ttk.Labelframe(content, text="Algorithm")
+        self.algorithm_combobox = ttk.Combobox(self.algorithm_frame, textvariable=self.algorithm, values=["Trial Division", "Pollard's Rho", "Pollard's P-1", "Elliptic Curve Factorization", "Quadratic Sieve"], state="readonly", style="h5.TCombobox")
+        self.algorithm_combobox.bind("<<ComboboxSelected>>", lambda e: self.set_time_to_factor())
+
+        self.time_to_factor_frame = ttk.Labelframe(content, text="Approximate time to factor")
+        self.time_to_factor_text = tk.Text(self.time_to_factor_frame, height=2, wrap="word", font=("Consolas", 11), state="disabled")
+
+        self.factorize_button = ttk.Button(content, text="Factorize", style="h6.TButton", command=lambda: self.factorize_number(self.any_number_entry.get(), self.algorithm.get()))
+
+        self.result_frame = ttk.Labelframe(content, text="Result")
+        self.result_text = tk.Text(self.result_frame, height=10, wrap="word", font=("Consolas", 11))
+
+        self.step_by_step_frame = ttk.Labelframe(content, text="Step by Step:")
+        self.step_by_step_text = tk.Text(self.step_by_step_frame, height=10, wrap="word", font=("Consolas", 11))
+
+        # Layouts
+        content.grid(row=0, column=0, sticky="nsew")
+        self.prime_factorization_label.grid(row=0, column=0, sticky="w")
+        self.any_number_entry.grid(row=0, column=0, sticky="ew")
+        self.any_number_copy.grid(row=0, column=1, sticky="ew")
+        self.any_number_paste.grid(row=0, column=2, sticky="ew")
+        self.any_number_clear.grid(row=0, column=3, sticky="ew")
+        self.any_number_frame.grid(row=1, column=0, columnspan=4, sticky="ew")
+        self.algorithm_combobox.grid(row=0, column=0, sticky="ew")
+        self.algorithm_frame.grid(row=2, column=0, columnspan=3, sticky="ew")
+        self.factorize_button.grid(row=2, column=3, columnspan=4, sticky="ew")
+        self.time_to_factor_frame.grid(row=3, column=0, columnspan=4, sticky="ew")
+        self.time_to_factor_text.grid(row=0, column=0, columnspan=4, sticky="ew")
+        self.result_text.grid(row=0, column=0, sticky="nsew")
+        self.result_frame.grid(row=4, column=0, columnspan=4, sticky="nsew")
+        self.step_by_step_text.grid(row=0, column=0, sticky="nsew")
+        self.step_by_step_frame.grid(row=5, column=0, columnspan=4, sticky="nsew")
+
+        # Configure grid weights
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+        content.columnconfigure(0, weight=1)
+        content.rowconfigure(4, weight=1)
+        content.rowconfigure(5, weight=1)
+        self.result_frame.columnconfigure(0, weight=1)
+        self.result_frame.rowconfigure(0, weight=1)
+        self.time_to_factor_frame.columnconfigure(0, weight=1)
+        self.step_by_step_frame.columnconfigure(0, weight=1)
+        self.step_by_step_frame.rowconfigure(0, weight=1)
+        self.any_number_frame.columnconfigure(0, weight=1)
+        self.algorithm_frame.columnconfigure(0, weight=1)
 
     def factorize_number(self, *args: Any):
         """Factorize a number using the selected algorithm."""
@@ -195,96 +636,20 @@ class ClientApp(tk.Tk):
             self.time_to_factor_text.insert(tk.END, format_time(seconds, "advanced", auto_detect=True))
             self.time_to_factor_text.configure(state="disabled")
 
-    def open_prime_factorization(self):
-        """Open the Prime Factorization window."""
-        win = tk.Toplevel(self)
-        win.title("Prime Factorization")
-        win.geometry(get_center_geometry(480, 600, self.winfo_screenwidth(), self.winfo_screenheight()))
-        
-        self.current_window |= ClientWindow.PRIME_FACTORIZATION
 
-        self.any_number = tk.StringVar()
-        self.any_number.trace_add("write", self.set_time_to_factor)
-        self.show_step_by_step = tk.BooleanVar(value=False)
-        self.algorithm = tk.StringVar(value="Trial Division")
+class PrimeFinderWindow(tk.Toplevel):
+    def __init__(self, master: ClientApp, loop: asyncio.AbstractEventLoop):
+        self.master = master
+        super().__init__(master=master)
+        self.loop = loop
 
-        menubar = tk.Menu(win)
-        win.config(menu=menubar)
-        settings_menu = tk.Menu(menubar, tearoff=False)
-        settings_menu.add_checkbutton(
-            label="Show step by step",
-            variable=self.show_step_by_step,
-        )
-        menubar.add_cascade(menu=settings_menu, label="Settings")
-        
-        content = ttk.Frame(win, padding=(3,3,12,12))
+        self.title("Find Prime Numbers")
+        self.geometry(get_center_geometry(480, 600, self.winfo_screenwidth(), self.winfo_screenheight()))
 
-        self.prime_factorization_label = ttk.Label(content, text="Prime Factorization Tool", style="h4.TLabel")
-        self.prime_factorization_label.grid(row=0, column=0, sticky="w")
+        # self.current_window |= ClientWindow.PRIME_NUMBERS_FINDER
 
-        self.any_number_frame = ttk.Labelframe(content, text="Any number")
-        self.any_number_entry = ttk.Entry(self.any_number_frame, style="h5.TEntry", textvariable=self.any_number)
-        self.any_number_copy = ttk.Button(self.any_number_frame, text="Copy", style="h6.TButton", command=lambda: self.any_number_entry.clipboard_clear() or self.any_number_entry.clipboard_append(self.any_number_entry.get()))
-        self.any_number_paste = ttk.Button(self.any_number_frame, text="Paste", style="h6.TButton", command=lambda: self.any_number_entry.insert(tk.END, self.any_number_entry.clipboard_get() if self.any_number_entry.clipboard_get() else ""))
-        self.any_number_clear = ttk.Button(self.any_number_frame, text="Clear", style="h6.TButton", command=lambda: self.any_number_entry.delete(0, tk.END))
-        
-        self.algorithm_frame = ttk.Labelframe(content, text="Algorithm")
-        self.algorithm_combobox = ttk.Combobox(self.algorithm_frame, textvariable=self.algorithm, values=["Trial Division", "Pollard's Rho", "Pollard's P-1", "Elliptic Curve Factorization", "Quadratic Sieve"], state="readonly", style="h5.TCombobox")
-        self.algorithm_combobox.bind("<<ComboboxSelected>>", lambda e: self.set_time_to_factor())
-
-        self.time_to_factor_frame = ttk.Labelframe(content, text="Approximate time to factor")
-        self.time_to_factor_text = tk.Text(self.time_to_factor_frame, height=2, wrap="word", font=("Consolas", 11), state="disabled")
-
-        self.factorize_button = ttk.Button(content, text="Factorize", style="h6.TButton", command=lambda: self.factorize_number(self.any_number_entry.get(), self.algorithm.get()))
-
-        self.result_frame = ttk.Labelframe(content, text="Result")
-        self.result_text = tk.Text(self.result_frame, height=10, wrap="word", font=("Consolas", 11))
-
-        self.step_by_step_frame = ttk.Labelframe(content, text="Step by Step:")
-        self.step_by_step_text = tk.Text(self.step_by_step_frame, height=10, wrap="word", font=("Consolas", 11))
-
-        # Layouts
-        content.grid(row=0, column=0, sticky="nsew")
-        self.prime_factorization_label.grid(row=0, column=0, sticky="w")
-        self.any_number_entry.grid(row=0, column=0, sticky="ew")
-        self.any_number_copy.grid(row=0, column=1, sticky="ew")
-        self.any_number_paste.grid(row=0, column=2, sticky="ew")
-        self.any_number_clear.grid(row=0, column=3, sticky="ew")
-        self.any_number_frame.grid(row=1, column=0, columnspan=4, sticky="ew")
-        self.algorithm_combobox.grid(row=0, column=0, sticky="ew")
-        self.algorithm_frame.grid(row=2, column=0, columnspan=3, sticky="ew")
-        self.factorize_button.grid(row=2, column=3, columnspan=4, sticky="ew")
-        self.time_to_factor_frame.grid(row=3, column=0, columnspan=4, sticky="ew")
-        self.time_to_factor_text.grid(row=0, column=0, columnspan=4, sticky="ew")
-        self.result_text.grid(row=0, column=0, sticky="nsew")
-        self.result_frame.grid(row=4, column=0, columnspan=4, sticky="nsew")
-        self.step_by_step_text.grid(row=0, column=0, sticky="nsew")
-        self.step_by_step_frame.grid(row=5, column=0, columnspan=4, sticky="nsew")
-
-        # Configure grid weights
-        win.columnconfigure(0, weight=1)
-        win.rowconfigure(0, weight=1)
-        content.columnconfigure(0, weight=1)
-        content.rowconfigure(4, weight=1)
-        content.rowconfigure(5, weight=1)
-        self.result_frame.columnconfigure(0, weight=1)
-        self.result_frame.rowconfigure(0, weight=1)
-        self.time_to_factor_frame.columnconfigure(0, weight=1)
-        self.step_by_step_frame.columnconfigure(0, weight=1)
-        self.step_by_step_frame.rowconfigure(0, weight=1)
-        self.any_number_frame.columnconfigure(0, weight=1)
-        self.algorithm_frame.columnconfigure(0, weight=1)
-
-    def open_prime_numbers_finder(self):
-        """Open the Prime Numbers Finder window."""
-        win = tk.Toplevel(self)
-        win.title("Find Prime Numbers")
-        win.geometry(get_center_geometry(480, 600, self.winfo_screenwidth(), self.winfo_screenheight()))
-
-        self.current_window |= ClientWindow.PRIME_NUMBERS_FINDER
-        
-        menubar = tk.Menu(win)
-        win.config(menu=menubar)
+        menubar = tk.Menu(self)
+        self.config(menu=menubar)
 
         self.show_step_by_step = tk.BooleanVar(value=False)
 
@@ -296,12 +661,10 @@ class ClientApp(tk.Tk):
 
         menubar.add_cascade(menu=settings_menu, label="Settings")
 
-        content = ttk.Frame(win, padding=(3,3,12,12))
-        content.grid(row=0, column=0, sticky="nsew")
+        content = ttk.Frame(self, padding=(3,3,12,12))
 
         self.key_generator_label = ttk.Label(content, text="Prime Numbers Finder", style="h4.TLabel")
-        self.key_generator_label.grid(row=0, column=0, sticky="w")
-
+        
         self.any_number_frame = ttk.Labelframe(content, text="Any number")
         self.any_number_entry = ttk.Entry(self.any_number_frame, style="h5.TEntry")
         self.any_number_copy = ttk.Button(self.any_number_frame, text="Copy", style="h6.TButton", command=lambda: self.any_number_entry.clipboard_clear() or self.any_number_entry.clipboard_append(self.any_number_entry.get()))
@@ -329,71 +692,120 @@ class ClientApp(tk.Tk):
         self.step_by_step_frame = ttk.Labelframe(content, text="Step by Step:")
         self.step_by_step_text = tk.Text(self.step_by_step_frame, height=10, wrap="word", font=("Consolas", 11))
 
-        # Layout for any_number_frame
+        # Layouts
+        content.grid(row=0, column=0, sticky="nsew")
+        self.key_generator_label.grid(row=0, column=0, sticky="w")
+
         self.any_number_entry.grid(row=0, column=0, sticky="ew")
         self.any_number_copy.grid(row=0, column=1, sticky="ew")
         self.any_number_paste.grid(row=0, column=2, sticky="ew")
         self.any_number_clear.grid(row=0, column=3, sticky="ew")
         self.any_number_frame.grid(row=1, column=0, columnspan=4, sticky="ew")
 
-        # Layout for from_frame
         self.from_entry.grid(row=0, column=0, sticky="ew")
         self.from_copy.grid(row=0, column=1, sticky="ew")
         self.from_paste.grid(row=0, column=2, sticky="ew")
         self.from_clear.grid(row=0, column=3, sticky="ew")
         self.from_frame.grid(row=2, column=0, columnspan=4, sticky="ew")
 
-        # Layout for to_frame
         self.to_entry.grid(row=0, column=0, sticky="ew")
         self.to_copy.grid(row=0, column=1, sticky="ew")
         self.to_paste.grid(row=0, column=2, sticky="ew")
         self.to_clear.grid(row=0, column=3, sticky="ew")
         self.to_frame.grid(row=3, column=0, columnspan=4, sticky="ew")
 
-        # Layout for buttons
         self.is_it_prime_button.grid(row=0, column=0, sticky="ew")
         self.random_button.grid(row=0, column=1, sticky="ew")
         self.next_prime_button.grid(row=0, column=2, sticky="ew")
         self.prev_prime_button.grid(row=0, column=3, sticky="ew")
         self.control_buttons_frame.grid(row=4, column=0, columnspan=4, sticky="ew")
 
-        # Layout for step by step frame
         self.step_by_step_text.grid(row=0, column=0, sticky="nsew")
         self.step_by_step_frame.grid(row=5, column=0, columnspan=4, sticky="nsew")
 
-        # Configure grid weights for resizing
-        win.columnconfigure(0, weight=1)
-        win.rowconfigure(0, weight=1)
-
-        self.any_number_frame.columnconfigure(0, weight=1)
-
-        self.from_frame.columnconfigure(0, weight=1)
-
-        self.to_frame.columnconfigure(0, weight=1)
-
-        self.control_buttons_frame.columnconfigure(0, weight=1)
-        self.control_buttons_frame.columnconfigure(1, weight=1)
-        self.control_buttons_frame.columnconfigure(2, weight=1)
-        self.control_buttons_frame.columnconfigure(3, weight=1)
-
+        # Configure grid weights
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
         content.columnconfigure(0, weight=1)
         content.rowconfigure(5, weight=1)
-
+        self.any_number_frame.columnconfigure(0, weight=1)
+        self.from_frame.columnconfigure(0, weight=1)
+        self.to_frame.columnconfigure(0, weight=1)
+        self.control_buttons_frame.columnconfigure((0, 1, 2, 3), weight=1)
         self.step_by_step_frame.rowconfigure(0, weight=1)
         self.step_by_step_frame.columnconfigure(0, weight=1)
 
+    def is_it_prime(self, number: int | str) -> None:
+        """Check if the given number is prime and display the result."""
+        try:
+            if isinstance(number, str):
+                number = int(number)
+            result = is_prime(number)
+            if result:
+                if result < 2**64:
+                    type_str = "prime"
+                else:
+                    type_str = "probable prime"
+            else:
+                if number < 2:
+                    type_str = "neither prime nor composite"
+                else:
+                    type_str = "composite"
+            messagebox.showinfo("Result", f"{shorten_string(str(number), 10, 10)} is a {type_str} number.") # type: ignore
+        except ValueError as err:
+            messagebox.showerror("Error", f"Invalid input: {err}") # type: ignore
 
-    def open_rsa_key_generator(self):
-        """Open the RSA Key Generator window."""
-        # TODO: "Show" button for the already existing keys in the manager.
-        win = tk.Toplevel(self)
-        win.title("RSA Key Generator")
-        win.geometry(get_center_geometry(480, 600, self.winfo_screenwidth(), self.winfo_screenheight()))
+    def set_random_prime(self, entry: tk.Entry, lower: int | str = 3, upper: int | str = 2**1024) -> None:
+        """Set a random prime number in the given entry widget."""
+        try:
+            if isinstance(lower, str):
+                lower = int(lower) 
+            if isinstance(upper, str):
+                upper = int(upper)
+            prime = rand_prime(lower, upper)
+            if not prime:
+                raise ValueError("No prime number found in the given range.")
+            entry.delete(0, tk.END)
+            entry.insert(0, str(prime))
+        except Exception as err:
+            messagebox.showerror("Error", f"Failed to generate a random prime number: {err}") # type: ignore
 
-        self.current_window |= ClientWindow.RSA_KEY_GENERATOR
+    def set_next_prime(self, entry: tk.Entry, number: int | str) -> None:
+        """Set the next prime number after the given number in the entry widget."""
+        try:
+            if isinstance(number, str):
+                number = int(number)
+            prime = next_prime(number, 1)
+            entry.delete(0, tk.END)
+            entry.insert(0, str(prime))
+        except Exception as err:
+            messagebox.showerror("Error", f"Failed to find the next prime number: {err}")
 
-        menubar = tk.Menu(win)
-        win.config(menu=menubar)
+    def set_prev_prime(self, entry: tk.Entry, number: int | str) -> None:
+        """Set the previous prime number before the given number in the entry widget."""
+        try:
+            if isinstance(number, str):
+                number = int(number)
+            prime = prev_prime(number)
+            entry.delete(0, tk.END)
+            entry.insert(0, str(prime))
+        except Exception as err:
+            messagebox.showerror("Error", f"Failed to find the previous prime number: {err}")
+
+
+class RsaKeyGeneratorWindow(tk.Toplevel):
+    def __init__(self, master: ClientApp, loop: asyncio.AbstractEventLoop):
+        self.master = master  # HACK: So the master (ClientApp) methods will be accessible.
+        super().__init__(master=master)
+        self.loop = loop
+
+        self.title("RSA Key Generator")
+        self.geometry(get_center_geometry(480, 600, self.winfo_screenwidth(), self.winfo_screenheight()))
+
+        # self.current_window |= ClientWindow.RSA_KEY_GENERATOR
+
+        menubar = tk.Menu(self)
+        self.config(menu=menubar)
 
         self.perform_security_checks = tk.BooleanVar(value=True)
         self.show_step_by_step = tk.BooleanVar(value=False)
@@ -420,25 +832,21 @@ class ClientApp(tk.Tk):
         settings_menu.add_cascade(label="Key Format", menu=key_format_menu)
         menubar.add_cascade(menu=settings_menu, label="Settings")
 
-        content = ttk.Frame(win, padding=(3,3,12,12))
-        content.grid(row=0, column=0, sticky=tk.NSEW)
+        content = ttk.Frame(self, padding=(3,3,12,12))
+        
 
         self.key_generator_label = ttk.Label(content, text="RSA Key Generator", style="h4.TLabel")
-        self.key_generator_label.grid(row=0, column=0, sticky=tk.W)
+        
 
         self.first_prime_frame = ttk.Labelframe(content, text="First Prime Number:")
         self.first_prime_entry = ttk.Entry(self.first_prime_frame, style="h5.TEntry")
         self.first_random_button = ttk.Button(self.first_prime_frame, text="Random", style="h6.TButton", command=lambda: self.set_random_prime(self.first_prime_entry))
-        self.first_prime_entry.grid(row=0, column=0, sticky=tk.W)
-        self.first_random_button.grid(row=0, column=1, sticky=tk.W)
-        self.first_prime_frame.grid(row=1, column=0, sticky=tk.SW)
+
 
         self.second_prime_frame = ttk.Labelframe(content, text="Second Prime Number:")
         self.second_prime_entry = ttk.Entry(self.second_prime_frame, style="h5.TEntry")
         self.second_random_button = ttk.Button(self.second_prime_frame, text="Random", style="h6.TButton", command=lambda: self.set_random_prime(self.second_prime_entry))
-        self.second_prime_entry.grid(row=0, column=0, sticky=tk.W)
-        self.second_random_button.grid(row=0, column=1, sticky=tk.W)
-        self.second_prime_frame.grid(row=2, column=0, sticky=tk.W)
+
 
         self.key_manager_frame = ttk.Labelframe(content, text="Key Manager:")
         self.key_manager_listbox = ScrollableListboxFrame(self.key_manager_frame)
@@ -452,12 +860,7 @@ class ClientApp(tk.Tk):
         self.key_manager_save_button = ttk.Button(self.key_manager_frame, text="Save", style="h6.TButton", command=lambda: self.save_rsa_keys(win))
         self.key_manager_use_button = ttk.Button(self.key_manager_frame, text="Use", style="h6.TButton", command=lambda: self.use_rsa_keys(win))
         self.key_manager_remove_button = ttk.Button(self.key_manager_frame, text="Remove", style="h6.TButton", command=self.remove_rsa_keys)
-        self.key_manager_listbox.grid(row=0, column=0, rowspan=4, sticky=tk.NSEW)
-        self.key_manager_generate_button.grid(row=0, column=1, sticky=tk.W)
-        self.key_manager_save_button.grid(row=1, column=1, sticky=tk.W)
-        self.key_manager_use_button.grid(row=2, column=1, sticky=tk.W)
-        self.key_manager_remove_button.grid(row=3, column=1, sticky=tk.W)
-        self.key_manager_frame.grid(row=0, column=1, rowspan=3, sticky=tk.W)
+        
 
         self.public_key_frame = ttk.Labelframe(content, text="Public Key:")
         self.public_key_text = tk.Text(self.public_key_frame, height=10, wrap="word", font=("Consolas", 11))
@@ -474,12 +877,30 @@ class ClientApp(tk.Tk):
         self.step_by_step_text.grid(row=0, column=0, sticky=tk.NSEW)
         self.step_by_step_frame.grid(row=5, column=0, columnspan=3, sticky=tk.NSEW)
 
-        win.columnconfigure(0, weight=1)
-        win.rowconfigure(0, weight=1)
+        # Layouts
+        content.grid(row=0, column=0, sticky=tk.NSEW)
+        self.key_generator_label.grid(row=0, column=0, sticky=tk.W)
+
+        self.first_prime_entry.grid(row=0, column=0, sticky=tk.W)
+        self.first_random_button.grid(row=0, column=1, sticky=tk.W)
+        self.first_prime_frame.grid(row=1, column=0, sticky=tk.SW)
+
+        self.second_prime_entry.grid(row=0, column=0, sticky=tk.W)
+        self.second_random_button.grid(row=0, column=1, sticky=tk.W)
+        self.second_prime_frame.grid(row=2, column=0, sticky=tk.W)
+
+        self.key_manager_listbox.grid(row=0, column=0, rowspan=4, sticky=tk.NSEW)
+        self.key_manager_generate_button.grid(row=0, column=1, sticky=tk.W)
+        self.key_manager_save_button.grid(row=1, column=1, sticky=tk.W)
+        self.key_manager_use_button.grid(row=2, column=1, sticky=tk.W)
+        self.key_manager_remove_button.grid(row=3, column=1, sticky=tk.W)
+        self.key_manager_frame.grid(row=0, column=1, rowspan=3, sticky=tk.W)
+
+        # Configure grid weights
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
         content.columnconfigure(2, weight=1)
-        content.rowconfigure(3, weight=1)
-        content.rowconfigure(4, weight=1)
-        content.rowconfigure(5, weight=1)
+        content.rowconfigure((3, 4, 5), weight=1)
         self.public_key_frame.rowconfigure(0, weight=1)
         self.public_key_frame.columnconfigure(0, weight=1)
         self.private_key_frame.rowconfigure(0, weight=1)
@@ -487,17 +908,108 @@ class ClientApp(tk.Tk):
         self.step_by_step_frame.rowconfigure(0, weight=1)
         self.step_by_step_frame.columnconfigure(0, weight=1)
 
-    def open_cipher_viewer(self):
-        """Open the Cipher Viewer window."""
-        win = tk.Toplevel(self)
-        win.title("Cipher Viewer")
-        win.geometry(get_center_geometry(1000, 600, self.winfo_screenwidth(), self.winfo_screenheight()))
+    def generate_rsa_keys(self):
+        """Generate RSA keys based on the provided prime numbers."""
+        t1 = TRANSLATIONS["common"][self.language.get()]
+        t2 = TRANSLATIONS["client"]["rsa_key_generator"][self.language.get()]
+        try:
+            p = int(self.first_prime_entry.get())
+            q = int(self.second_prime_entry.get())
+        except ValueError:
+            messagebox.showerror("Error", "Both p and q must be valid integers.") # type: ignore
+        else:
+            try:
+                if self.perform_security_checks.get():
+                    self.last_public_key, self.last_private_key = rsa_generate_keys_with_checks(p, q)
+                else:
+                    self.last_public_key, self.last_private_key = rsa_generate_keys(p, q)
+            except ValueError as err:
+                # TODO: Error here should be translated. 
+                messagebox.showerror("Error", str(err)) # type: ignore
+            else:
+                self.public_key_text.config(state="normal")
+                self.private_key_text.config(state="normal")
+                self.step_by_step_text.config(state="normal")
+                self.public_key_text.delete(1.0, tk.END)
+                self.private_key_text.delete(1.0, tk.END)
+                self.step_by_step_text.delete(1.0, tk.END)
+                if self.key_format.get() == "Plain/Raw":
+                    self.public_key_text.insert(tk.END, f"-----EXPONENT e-----\n{self.last_public_key[0]}\n-----MODULUS n-----\n{self.last_public_key[1]}")
+                    self.private_key_text.insert(tk.END, f"-----EXPONENT d-----\n{self.last_private_key[0]}\n-----MODULUS n-----\n{self.last_private_key[1]}")
+                elif self.key_format.get() == "PEM":
+                    pass
+                self.public_key_text.config(state="disabled")
+                self.private_key_text.config(state="disabled")
+                self.step_by_step_text.config(state="disabled")
+    
+    def save_rsa_keys(self, parent: tk.Toplevel):
+        if not self.last_public_key or not self.last_private_key:
+            messagebox.showerror("Error", "No RSA keys generated yet.")
+        else:
+            name = simpledialog.askstring("Save RSA Keys", "Enter a name for the key pair:", initialvalue="Main Key Pair", parent=parent)
+            if not name:
+                messagebox.showerror("Error", "Key pair name cannot be empty.") # type: ignore
+            else:
+                if (self.last_public_key, self.last_private_key) in self.profile.keys.values():
+                    messagebox.showerror("Error", "This RSA key pair already exists in the profile.") # type: ignore
+                else:
+                    if self.profile:
+                        self.profile.keys[name] = (self.last_public_key, self.last_private_key)
+                        self.key_manager_listbox.listbox.insert(tk.END, name)
+                        self.key_manager_listbox.listbox.see(tk.END)
+    
+    def use_rsa_keys(self, parent: tk.Toplevel):
+        """Use the selected RSA keys for encryption/decryption."""
+        selected = self.key_manager_listbox.listbox.curselection()
+        if not selected:
+            messagebox.showerror("Error", "No RSA keys selected.") # type: ignore
+            return
+        key_name = self.key_manager_listbox.listbox.get(selected[0])
+        if self.profile and key_name in self.profile.keys:
+            self.profile.public_key, self.profile.private_key = self.profile.keys[key_name]
+            self.profile.has_set_up_key = True
+            self.loop.create_task(self.transmit_message(self.writer, MessageType.SEND_PUBLIC_KEY, json.dumps({
+                        "exponent": self.profile.public_key[0],
+                        "modulus": self.profile.public_key[1]
+            }).encode("utf-8")))
+            messagebox.showinfo("Success", f"Using RSA keys: {key_name}", parent=parent) # type: ignore
+
+    def remove_rsa_keys(self):
+        selected = self.key_manager_listbox.listbox.curselection()
+        if not selected:
+            messagebox.showerror("Error", "No RSA keys selected.") # type: ignore
+        else:
+            key_name = self.key_manager_listbox.listbox.get(selected[0])
+            if self.profile and key_name in self.profile.keys:
+                key_public, key_private = self.profile.keys[key_name]
+                if (self.profile.public_key == key_public and self.profile.private_key == key_private):
+                    messagebox.showerror("Error", "Cannot remove currently used RSA keys.") # type: ignore
+                elif len(self.profile.keys) == 1:
+                    messagebox.showerror("Error", "Cannot remove the only RSA keys in the profile.") # type: ignore
+                else:
+                    if messagebox.askyesno("Confirm Removal", f"Are you sure you want to remove the RSA keys: {key_name}?"): # type: ignore
+                        del self.profile.keys[key_name]
+                        self.key_manager_listbox.listbox.delete(selected[0])
+                        messagebox.showinfo("Success", f"Removed RSA keys: {key_name}") # type: ignore
+            else:
+                messagebox.showerror("Error", "Selected RSA keys not found in profile.") # type: ignore
+
+
+class CipherViewerWindow(tk.Toplevel):
+    def __init__(self, master: ClientApp, loop: asyncio.AbstractEventLoop):
+        self.master = master  # HACK: So the master (ClientApp) methods will be accessible.
+        super().__init__(master=master)
+        self.loop = loop
+
+        self.title("Cipher Viewer")
+        self.geometry(get_center_geometry(1000, 600, self.winfo_screenwidth(), self.winfo_screenheight()))
         
-        self.current_window |= ClientWindow.CIPHER_VIEWER
+        # self.current_window |= ClientWindow.CIPHER_VIEWER
 
-        menubar = tk.Menu(win)
-        win.config(menu=menubar)
+        menubar = tk.Menu(self)
+        self.config(menu=menubar)
 
+        # Variables for settings
         # TODO: Add an option to disable automatic updates of the treeviews or highlighting.
         # TODO: Add an option to update the saved personal keys and other users' keys.
         # TODO: Remake the key selection menu to use a combobox instead of a radiobutton menu.
@@ -508,6 +1020,41 @@ class ClientApp(tk.Tk):
         self.selected_key_identity = tk.StringVar(value="current_session_key") # Holds the ID of the selected key
         self.output_display_format = tk.StringVar(value="Hex")
         self.input_string = tk.StringVar()
+
+        # Private variables
+        self._syncing_selection = False
+        self._syncing_yview = False
+        self._handling_text_change = False
+        self._last_input_text = ""
+        self._last_format = self.current_format.get()
+        self._previous_highlights: set[tuple[int, int]] = set()
+
+        # UI Variables
+        content = ttk.Frame(self, padding=(3,3,12,12))
+
+        self.cipher_viewer_label = ttk.Label(content, text="Cipher Viewer", style="h4.TLabel")
+
+        self.address_labelframe = ttk.Labelframe(content, text="Address")
+        self.address_treeview_frame = ScrollableTreeviewFrame(self.address_labelframe, height=10)
+
+        self.format_labelframe = ttk.Labelframe(content, text=self.current_format.get())
+        self.format_treeview_frame = ScrollableTreeviewFrame(self.format_labelframe, height=10)
+
+        self.input_frame = ttk.Labelframe(content, text="Input")
+        self.input_text = CustomText(self.input_frame, height=10, wrap="word", font=("Consolas", 11))
+        
+        self.input_copy_button = ttk.Button(self.input_frame, text="Copy", style="h6.TButton", command=lambda: copy_input_text())
+        self.input_paste_button = ttk.Button(self.input_frame, text="Paste", style="h6.TButton", command=paste_input_text)
+        self.input_view_button = ttk.Button(self.input_frame, text="View", style="h6.TButton", command=lambda: self.current_view.set("Input"))
+        self.input_encode_button = ttk.Button(self.input_frame, text="Encode", style="h6.TButton", command=lambda: encode_cipher_text()) 
+        self.input_decode_button = ttk.Button(self.input_frame, text="Decode", style="h6.TButton", command=lambda: decode_cipher_text())
+        self.input_clear_button = ttk.Button(self.input_frame, text="Clear", style="h6.TButton", command=delete_input_text)
+
+        self.output_frame = ttk.Labelframe(content, text="Output")
+        self.output_text = tk.Text(self.output_frame, height=10, wrap="word", font=("Consolas", 11), state=tk.DISABLED)
+        self.output_copy_button = ttk.Button(self.output_frame, text="Copy", style="h6.TButton", command=lambda: self.output_text.clipboard_clear() or self.output_text.clipboard_append(self.output_text.get("1.0", "end-1c")))
+        self.output_view_button = ttk.Button(self.output_frame, text="View", style="h6.TButton", command=lambda: self.current_view.set("Output"))
+        self.output_clear_button = ttk.Button(self.output_frame, text="Clear", style="h6.TButton", command=lambda: self.output_text.config(state=tk.NORMAL) or self.output_text.delete("1.0", tk.END) or self.output_text.config(state=tk.DISABLED))
 
         settings_menu = tk.Menu(menubar, tearoff=False)
         settings_menu.add_checkbutton(
@@ -582,20 +1129,6 @@ class ClientApp(tk.Tk):
         settings_menu.add_cascade(label="Select Format", menu=format_menu)
         menubar.add_cascade(menu=settings_menu, label="Settings")
 
-        content = ttk.Frame(win, padding=(3,3,12,12))
-        content.grid(row=0, column=0, sticky=tk.NSEW)
-
-        self.cipher_viewer_label = ttk.Label(content, text="Cipher Viewer", style="h4.TLabel")
-        self.cipher_viewer_label.grid(row=0, column=0, sticky=tk.W)
-
-        self._syncing_selection = False
-        self._syncing_yview = False
-        self._handling_text_change = False
-        self._last_input_text = ""
-        self._last_format = self.current_format.get()
-        self._previous_highlights: set[tuple[int, int]] = set()
-
-
         # ---------------- DEBUG ---------------------
         public_key, private_key = rsa_generate_keys(rand_prime(3, 2**16), rand_prime(3, 2**16)) # type: ignore
         self.profile = Profile(
@@ -663,18 +1196,15 @@ class ClientApp(tk.Tk):
             finally:
                 self._syncing_yview = False
 
-        self.address_labelframe = ttk.Labelframe(content, text="Address")
-        self.address_treeview_frame = ScrollableTreeviewFrame(self.address_labelframe, height=10)
+        
         self.address_treeview_frame.treeview.config(columns=("Offset"), show="headings")
         self.address_treeview = self.address_treeview_frame.treeview
         self.address_treeview.bind("<<TreeviewSelect>>", lambda event: synchronize_treeview_selection(event, self.address_treeview))
         self.address_treeview.heading("Offset", text="Offset")
         self.address_treeview.column("Offset", width=50) # stretch=tk.NO
-        self.address_treeview_frame.grid(row=0, column=0, sticky=tk.NSEW)
-        self.address_labelframe.grid(row=1, column=0, rowspan=2, sticky=tk.NSEW)
 
-        self.format_labelframe = ttk.Labelframe(content, text=self.current_format.get())
-        self.format_treeview_frame = ScrollableTreeviewFrame(self.format_labelframe, height=10)
+
+        
         self.format_treeview = self.format_treeview_frame.treeview
         self.format_treeview.bind("<<TreeviewSelect>>", lambda event: synchronize_treeview_selection(event, self.format_treeview))
         self.format_treeview.config(
@@ -686,8 +1216,7 @@ class ClientApp(tk.Tk):
             self.format_treeview.heading(col, text=col)
             self.format_treeview.column(col, width=39, stretch=tk.NO, anchor="center")
         self.format_treeview.column("#0", width=0, stretch=tk.NO)
-        self.format_treeview_frame.grid(row=0, column=0, sticky=tk.NSEW)
-        self.format_labelframe.grid(row=1, column=1, rowspan=2, sticky=tk.NSEW)
+
 
         # Set the yscrollcommand for both treeviews to the sync function
         self.address_treeview.config(yscrollcommand=lambda *args: sync_yview(*args))
@@ -1047,21 +1576,27 @@ class ClientApp(tk.Tk):
                 self.output_text.insert(tk.END, f"Error decoding the text: {e}")
                 self.output_text.config(state=tk.DISABLED)
 
-        self.input_frame = ttk.Labelframe(content, text="Input")
-        self.input_text = CustomText(self.input_frame, height=10, wrap="word", font=("Consolas", 11))
+        
+
         self.input_text.tag_configure("highlight", background="#cceeff")
+
+        # Bindings
         self.input_text.bind("<<Selection>>", on_selection)
         self.input_text.bind("<<CursorChange>>", on_cursor_change)
         self.input_text.bind("<<TextInserted>>", on_text_change)
         self.input_text.bind("<<DeleteBefore>>", on_text_change)
         self.input_text.bind("<<DeleteAfter>>", on_text_change)
-        self.input_text.grid(row=0, column=0, sticky=tk.NSEW)
-        self.input_copy_button = ttk.Button(self.input_frame, text="Copy", style="h6.TButton", command=lambda: copy_input_text())
-        self.input_paste_button = ttk.Button(self.input_frame, text="Paste", style="h6.TButton", command=paste_input_text)
-        self.input_view_button = ttk.Button(self.input_frame, text="View", style="h6.TButton", command=lambda: self.current_view.set("Input"))
-        self.input_encode_button = ttk.Button(self.input_frame, text="Encode", style="h6.TButton", command=lambda: encode_cipher_text()) 
-        self.input_decode_button = ttk.Button(self.input_frame, text="Decode", style="h6.TButton", command=lambda: decode_cipher_text())
-        self.input_clear_button = ttk.Button(self.input_frame, text="Clear", style="h6.TButton", command=delete_input_text)
+
+        # Layouts
+        content.grid(row=0, column=0, sticky=tk.NSEW)
+        self.cipher_viewer_label.grid(row=0, column=0, sticky=tk.W)
+
+        self.address_treeview_frame.grid(row=0, column=0, sticky=tk.NSEW)
+        self.address_labelframe.grid(row=1, column=0, rowspan=2, sticky=tk.NSEW)
+
+        self.format_treeview_frame.grid(row=0, column=0, sticky=tk.NSEW)
+        self.format_labelframe.grid(row=1, column=1, rowspan=2, sticky=tk.NSEW)
+
         self.input_text.grid(row=0, column=0, columnspan=6, sticky=tk.NSEW)
         self.input_copy_button.grid(row=1, column=0, sticky=tk.EW)
         self.input_paste_button.grid(row=1, column=1, sticky=tk.EW)
@@ -1071,27 +1606,19 @@ class ClientApp(tk.Tk):
         self.input_clear_button.grid(row=1, column=5, sticky=tk.EW)
         self.input_frame.grid(row=1, column=2, sticky=tk.NSEW)
 
-        self.output_frame = ttk.Labelframe(content, text="Output")
-        self.output_text = tk.Text(self.output_frame, height=10, wrap="word", font=("Consolas", 11), state=tk.DISABLED)
-        self.output_text.grid(row=0, column=0, sticky=tk.NSEW)
-        self.output_copy_button = ttk.Button(self.output_frame, text="Copy", style="h6.TButton", command=lambda: self.output_text.clipboard_clear() or self.output_text.clipboard_append(self.output_text.get("1.0", "end-1c")))
-        self.output_view_button = ttk.Button(self.output_frame, text="View", style="h6.TButton", command=lambda: self.current_view.set("Output"))
-        self.output_clear_button = ttk.Button(self.output_frame, text="Clear", style="h6.TButton", command=lambda: self.output_text.config(state=tk.NORMAL) or self.output_text.delete("1.0", tk.END) or self.output_text.config(state=tk.DISABLED))
         self.output_text.grid(row=0, column=0, columnspan=3, sticky=tk.NSEW)
         self.output_copy_button.grid(row=1, column=0, sticky=tk.EW)
         self.output_view_button.grid(row=1, column=1, sticky=tk.EW)
         self.output_clear_button.grid(row=1, column=2, sticky=tk.EW)
         self.output_frame.grid(row=2, column=2, sticky=tk.NSEW)
 
-        # Configure grid weights for resizing
-        win.columnconfigure(0, weight=1)
-        win.rowconfigure(0, weight=1)
+        # Configure grid weights
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
 
         content.columnconfigure(0, weight=1, minsize=80)
-        # content.columnconfigure(1, weight=1)
         content.columnconfigure(2, weight=1)
-        content.rowconfigure(1, weight=1)
-        content.rowconfigure(2, weight=1)
+        content.rowconfigure((1, 2), weight=1)
         
         self.address_labelframe.rowconfigure(0, weight=1)
         self.address_labelframe.columnconfigure(0, weight=1)
@@ -1109,707 +1636,6 @@ class ClientApp(tk.Tk):
         self.output_frame.rowconfigure(0, weight=1)
         self.output_frame.columnconfigure((0, 1, 2), weight=1)
 
-    def open_cipher_attacker(self):
-        win = tk.Toplevel(self)
-        win.title("Cipher Attacker")
-        ttk.Label(win, text="Cipher Attacker (Coming Soon)", style="h4.TLabel").pack(padx=20, pady=20)
-        ttk.Button(win, text="Close", command=win.destroy).pack(pady=10)
-
-    def show_license(self):
-        ...
-
-    def goto_repository(self):
-        ...
-
-    def show_about(self):
-        ...
-
-    def show_howto(self):
-        ...
-
-    def update_all_chats(self):
-        ...
-
-    def update_active_chat(self):
-        ...
-
-    def show_waiting_panel(self):
-        # Destroy all widgets except the root
-        for child in self.winfo_children():
-            if child not in (self.menubar, self.language_menu):
-                # Exclude the menubar and language menu from destruction
-                child.destroy()
-        self.title("Client App | Waiting for Approval")
-        self.geometry(get_center_geometry(375, 205, self.winfo_screenwidth(), self.winfo_screenheight()))
-        self.current_window = ClientWindow.WAITING
-        self.waiting_label = ttk.Label(self, style="h3.TLabel")
-        self.waiting_label.pack(side=tk.TOP, pady=(10, 5))
-        self.fact_label = ttk.Label(self, style="h5.TLabel", wraplength=325)
-        self.fact_label.pack(fill=tk.Y, side=tk.TOP, expand=True, pady=(0, 5))
-        self.just_wait_button = ttk.Button(self, command=self.update_fact, style="h5.bold.TButton")
-        self.just_wait_button.pack(side=tk.TOP, pady=(0, 15))
-        self.update_fact()
-        self.update_language()
-
-    def get_random_fact(self) -> str:
-        self.last_fact = random.randint(0, len(TRANSLATIONS["client"]["waiting"][self.language.get()]["facts"]) - 1)
-        return TRANSLATIONS["client"]["waiting"][self.language.get()]["facts"][self.last_fact]
-
-    def update_fact(self):
-        self.fact_label.config(text=self.get_random_fact())
-    
-    def show_chats(self):
-        # Destroy all widgets except the root
-        for child in self.winfo_children():
-            if child not in (self.menubar, self.language_menu):
-                # Exclude the menubar and language menu from destruction
-                child.destroy()
-
-        self.title("Client App | Chats")
-        self.geometry(get_center_geometry(900, 600, self.winfo_screenwidth(), self.winfo_screenheight()))
-        self.current_window = ClientWindow.CHAT
-
-        self.file_menu = tk.Menu(self.menubar, tearoff=False)
-        self.file_menu.add_command(
-            label="Settings",
-            accelerator="Ctrl+,",
-            command=self.open_settings
-        )
-        self.file_menu.add_separator()
-        self.file_menu.add_command(
-            label="Exit",
-            command=self.on_close
-        )
-        self.toolkit_menu = tk.Menu(self.menubar, tearoff=False)
-        self.toolkit_menu.add_command(
-            label="Prime Factorization",
-            command=self.open_prime_factorization
-        )
-        self.toolkit_menu.add_command(
-            label="Find Prime Numbers",
-            command=self.open_prime_numbers_finder
-        )
-        self.toolkit_menu.add_command(
-            label="Generate RSA Key",
-            command=self.open_rsa_key_generator
-        )
-        self.toolkit_menu.add_command(
-            label="Cipher viewer",
-            command=self.open_cipher_viewer
-        )
-        self.toolkit_menu.add_command(
-            label="Cipher attacker",
-            command=self.open_cipher_attacker
-        )
-        self.help_menu = tk.Menu(self.menubar, tearoff=False)
-        self.help_menu.add_command(
-            label="License",
-            command=self.show_license
-        )
-        self.help_menu.add_command(
-            label="Repository",
-            command=self.goto_repository
-        )
-        self.help_menu.add_command(
-            label="About",
-            command=self.show_about
-        )
-        self.help_menu.add_command(
-            label="How-to",
-            command=self.show_howto
-        )
-        self.menubar.insert_cascade(index=1, menu=self.file_menu, label="File")
-        self.menubar.insert_cascade(index=2, menu=self.toolkit_menu, label="Toolkit")
-        self.menubar.insert_cascade(index=4, menu=self.help_menu, label="Help")
-        
-        self.configure(menu=self.menubar)
-
-        # --- Chat UI Layout ---
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_columnconfigure(0, weight=3)
-        self.grid_columnconfigure(1, weight=1)
-
-        # Chat display (read-only)
-        self.chat_display = tk.Text(self, state="disabled", wrap="word", font=("Roboto", 12))
-        self.chat_display.grid(row=0, column=0, sticky="nsew", padx=(10, 5), pady=(10, 5))
-        # TODO: Chat and chatting should be reworked to support both encoded and decoded messages and
-        #       switching between them.
-
-        # User list
-        self.user_listbox = tk.Listbox(self, width=20, font=("Roboto", 11))
-        for username in self.other_clients.keys():
-            self.user_listbox.insert(tk.END, username)
-        self.user_listbox.grid(row=0, column=1, sticky="nsew", padx=(5, 10), pady=(10, 5))
-        self.user_listbox.bind("<<ListboxSelect>>", self.update_chat)
-
-        # Message entry and send button
-        self.message_entry = ttk.Entry(self, font=("Roboto", 12))
-        self.message_entry.grid(row=1, column=0, sticky="ew", padx=(10, 5), pady=(0, 10))
-        self.send_button = ttk.Button(self, text="Send", command=self.send_message, style="h5.bold.TButton")
-        self.send_button.grid(row=1, column=1, sticky="ew", padx=(5, 10), pady=(0, 10))
-
-    def send_message(self):
-        """Send a message to the chat."""
-        if not self.profile or not self.profile.has_set_up_key:
-            messagebox.showwarning("Warning", "You need to set up your RSA keys before sending messages.") # type: ignore
-            return
-        selection = self.user_listbox.curselection()
-        if not selection:
-            messagebox.showwarning("Warning", "No user selected to send the message to.") # type: ignore
-        else:
-            username = self.user_listbox.get(selection[0])
-            message = self.message_entry.get().strip()
-            if not message:
-                messagebox.showwarning("Warning", "Message cannot be empty.") # type: ignore
-            else:
-                if self.writer and self.profile:
-                    try:
-                        encrypted_message = chunked_rsa_encrypt(str_to_int(message), self.other_clients[username].public_key)
-                        self.loop.create_task(
-                            self.transmit_message(self.writer, MessageType.SEND_MESSAGE, json.dumps(
-                                {
-                                    "to": username,
-                                    "message": encrypted_message,
-                                }, cls=JSONBytesEncoder
-                            ).encode("utf-8")),
-                        )
-                        self.message_entry.delete(0, tk.END)
-                        logging.info(f"Sent message: {message}")
-                        self.chats[username].append(f"{self.profile.username}: {message}\n")
-                        self.chat_display.config(state="normal")
-                        self.chat_display.insert(tk.END, f"{self.profile.username}: {message}\n")
-                        self.chat_display.config(state="disabled")
-                        self.chat_display.see(tk.END)
-                    except Exception as e:
-                        logging.error(f"Failed to send message: {e}")
-                        messagebox.showerror("Error", f"Failed to send message: {e}") # type: ignore
-
-    def on_click_connect(self):
-        server_host = self.host_entry.get()
-        server_port = self.port_entry.get()
-        if not server_host or not server_port:
-            messagebox.showerror("Error", "Server IP or Port is empty.") # type: ignore
-        elif len(octets := server_host.split(".")) != 4 or not all(octet.isdecimal() for octet in octets):
-            messagebox.showerror( # type: ignore
-                "Error", "[ERROR] - IPv4 should be written in dot-decimal notation and consist of four octets (e.g. `255.255.255.255`)."
-            ) 
-        elif not server_port.isdecimal():
-            messagebox.showerror("Error", "[ERROR] - Port numbers should be decimal integers (e.g. `8080`).") # type: ignore
-        else:
-            self.loop.create_task(self.start_client(server_host, int(server_port)))
-
-    def poll_asyncio(self):
-        try:
-            self.loop.call_soon(self.loop.stop)
-            self.loop.run_forever()
-        except RuntimeError:
-            pass
-        self.after(10, self.poll_asyncio)
-
-    async def handle_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        self.writer, self.reader = writer, reader
-        self.profile = None
-        waiting_panel_shown = False
-        while True:
-            try:
-                msg_type, length = struct.unpack('>BI', await reader.readexactly(5))
-                data = await reader.readexactly(length)
-            except asyncio.exceptions.IncompleteReadError:
-                logging.info(f"Server {writer.get_extra_info('peername')} is unreachable")
-                break
-            logging.info(f"Received message type {MessageType(msg_type).name}: {len(data)} bytes from {writer.get_extra_info('peername')}")
-            logging.debug(f"Bytes: {data!r}")
-
-            if msg_type == MessageType.SEND_PROFILE:
-                data = json.loads(data)
-                self.profile = Profile(data["username"], data["name"])
-            elif msg_type == MessageType.SEND_READY_USERS:
-                data = json.loads(data)
-                for profile in data:
-                    self.other_clients[profile["username"]] = Profile(profile["username"], profile["name"], profile["public_key"])
-                    self.chats[profile["username"]] = []
-            if self.profile:
-                if not self.profile.is_approved:
-                    if not waiting_panel_shown:
-                        self.show_waiting_panel()
-                        waiting_panel_shown = True
-                    elif msg_type == MessageType.APPROVE_USER:
-                        self.profile.is_approved = True
-                        self.show_chats()
-                else:
-                    if msg_type == MessageType.BROADCAST_USER:
-                        data = json.loads(data)
-                        username, name, public_key = data["username"], data["name"], data["public_key"]
-                        if username != self.profile.username and username not in self.other_clients:
-                            self.other_clients[username] = Profile(username, name, public_key)
-                            self.user_listbox.insert(tk.END, username)
-                            self.chats[username] = []
-                            logging.info(f"New user connected: {username}")
-                    elif msg_type == MessageType.GET_MESSAGE:
-                        if not self.profile.has_set_up_key or not self.profile.private_key:
-                            continue
-                        message_data = json.loads(data, cls=JSONBytesDecoder)
-                        username = message_data["from"]
-                        message = message_data["message"]
-                        if username in self.other_clients:
-                            # TODO: Handle situations when the message was encrypted badly (e.g. p=q)
-                            #       and throw out error.
-                            decrypted_message = int_to_str(chunked_rsa_decrypt(message, self.profile.private_key))
-                            self.chats[username].append(f"{username}: {decrypted_message}\n")
-                            if (selection := self.user_listbox.curselection()):
-                                if self.user_listbox.get(selection[0]) == username:
-                                    # NOTE: ONLY IF THE CHAT WITH THE USER IS CURRENTLY ACTIVE, DO FOLLOWING:
-                                    self.chat_display.config(state="normal")
-                                    self.chat_display.insert(tk.END, f"{username}: {decrypted_message}\n")
-                                    self.chat_display.config(state="disabled")
-                                    self.chat_display.see(tk.END)
-                    
-
-        await self.close_connection(writer)
-
-    async def connect_client(self, server_host: str, server_port: int):
-        try:
-            self.reader, self.writer = await asyncio.open_connection(server_host, server_port)
-        except (OSError, PermissionError, TimeoutError) as err:
-            logging.error(f"Failed to connect to the server: {err}")
-            messagebox.showerror("Connection Error", f"Failed to connect to the server: {err}") # type: ignore
-        else:
-            logging.info(f'Client is connected to (\'{server_host}\', {server_port})')
-            self.loop.create_task(self.handle_connection(self.reader, self.writer))
-
-    async def start_client(self, server_host: str, server_port: int):
-        await self.connect_client(server_host, server_port)
-
-        self.loop.create_task(self.transmit_message(self.writer, MessageType.SEND_COUNTRY, self.country.get().encode("utf-8")))
-
-        # await asyncio.sleep(3600)
-
-    async def transmit_message(self, writer: asyncio.StreamWriter, msg_type: int, data: bytes = b""):
-        logging.info(f"Send message type {MessageType(msg_type).name}: {len(data)} bytes to {writer.get_extra_info('peername')}")
-        try:
-            writer.write(struct.pack('>BI', msg_type, len(data)))  # 1-byte message type and 4-byte big-endian length prefix
-            writer.write(data)
-            await writer.drain()
-        except (ConnectionResetError, BrokenPipeError):
-            logging.info(f"Failed to send to {writer.get_extra_info('peername')} — server offline")
-            await self.close_connection(writer)
-
-    async def transmit(self, writer: asyncio.StreamWriter, data: bytes) -> None:
-        logging.info(f"Send: {len(data)} bytes to {writer.get_extra_info('peername')}")
-        try:
-            writer.write(data)
-            await writer.drain()
-        except (ConnectionResetError, BrokenPipeError):
-            logging.info(f"Failed to send to {writer.get_extra_info('peername')} — server offline")
-            await self.close_connection(writer)
-
-    async def close_connection(self, writer: asyncio.StreamWriter):
-        logging.info(f"Closing the connection with {writer.get_extra_info('peername')}")
-        if not writer.is_closing():
-            writer.close()
-            await writer.wait_closed()
-
-    def update_language(self):
-        if self.current_window & ClientWindow.CONNECT:
-            t = TRANSLATIONS["client"]["connect"][self.language.get()]
-            self.title(t["title"])
-            texts: list[str] = [
-                "RSA Demonstration Messenger",
-                t["welcome"],
-                t["info"],
-                t["rule1"],
-                t["rule2"],
-                t["rule3"],
-                t["rule4"],
-                t["rule5"],
-            ]
-            for label, text in zip(self.info_labels, texts):
-                label.config(text=text)
-            self.country_label.config(text=t["country"])
-            self.host_label.config(text=t["server_ip"])
-            self.port_label.config(text=t["server_port"])
-            self.connect_button.config(text=t["connect"])
-        elif self.current_window & ClientWindow.WAITING:
-            t = TRANSLATIONS["client"]["waiting"][self.language.get()]
-            self.title(t["title"])
-            self.waiting_label.config(text=t["waiting_for_approval"])
-            self.just_wait_button.config(text=t["just_wait"])
-            self.fact_label.config(text=t["facts"][self.last_fact])
-
-    def is_it_prime(self, number: int | str) -> None:
-        """Check if the given number is prime and display the result."""
-        try:
-            if isinstance(number, str):
-                number = int(number)
-            result = is_prime(number)
-            if result:
-                if result < 2**64:
-                    type_str = "prime"
-                else:
-                    type_str = "probable prime"
-            else:
-                if number < 2:
-                    type_str = "neither prime nor composite"
-                else:
-                    type_str = "composite"
-            messagebox.showinfo("Result", f"{shorten_string(str(number), 10, 10)} is a {type_str} number.") # type: ignore
-        except ValueError as err:
-            messagebox.showerror("Error", f"Invalid input: {err}") # type: ignore
-
-    def set_random_prime(self, entry: tk.Entry, lower: int | str = 3, upper: int | str = 2**1024) -> None:
-        """Set a random prime number in the given entry widget."""
-        try:
-            if isinstance(lower, str):
-                lower = int(lower) 
-            if isinstance(upper, str):
-                upper = int(upper)
-            prime = rand_prime(lower, upper)
-            if not prime:
-                raise ValueError("No prime number found in the given range.")
-            entry.delete(0, tk.END)
-            entry.insert(0, str(prime))
-        except Exception as err:
-            messagebox.showerror("Error", f"Failed to generate a random prime number: {err}") # type: ignore
-
-    def set_next_prime(self, entry: tk.Entry, number: int | str) -> None:
-        """Set the next prime number after the given number in the entry widget."""
-        try:
-            if isinstance(number, str):
-                number = int(number)
-            prime = next_prime(number, 1)
-            entry.delete(0, tk.END)
-            entry.insert(0, str(prime))
-        except Exception as err:
-            messagebox.showerror("Error", f"Failed to find the next prime number: {err}")
-
-    def set_prev_prime(self, entry: tk.Entry, number: int | str) -> None:
-        """Set the previous prime number before the given number in the entry widget."""
-        try:
-            if isinstance(number, str):
-                number = int(number)
-            prime = prev_prime(number)
-            entry.delete(0, tk.END)
-            entry.insert(0, str(prime))
-        except Exception as err:
-            messagebox.showerror("Error", f"Failed to find the previous prime number: {err}")
-
-    def generate_rsa_keys(self):
-        """Generate RSA keys based on the provided prime numbers."""
-        t1 = TRANSLATIONS["common"][self.language.get()]
-        t2 = TRANSLATIONS["client"]["rsa_key_generator"][self.language.get()]
-        try:
-            p = int(self.first_prime_entry.get())
-            q = int(self.second_prime_entry.get())
-        except ValueError:
-            messagebox.showerror("Error", "Both p and q must be valid integers.") # type: ignore
-        else:
-            try:
-                if self.perform_security_checks.get():
-                    self.last_public_key, self.last_private_key = rsa_generate_keys_with_checks(p, q)
-                else:
-                    self.last_public_key, self.last_private_key = rsa_generate_keys(p, q)
-            except ValueError as err:
-                # TODO: Error here should be translated. 
-                messagebox.showerror("Error", str(err)) # type: ignore
-            else:
-                self.public_key_text.config(state="normal")
-                self.private_key_text.config(state="normal")
-                self.step_by_step_text.config(state="normal")
-                self.public_key_text.delete(1.0, tk.END)
-                self.private_key_text.delete(1.0, tk.END)
-                self.step_by_step_text.delete(1.0, tk.END)
-                if self.key_format.get() == "Plain/Raw":
-                    self.public_key_text.insert(tk.END, f"-----EXPONENT e-----\n{self.last_public_key[0]}\n-----MODULUS n-----\n{self.last_public_key[1]}")
-                    self.private_key_text.insert(tk.END, f"-----EXPONENT d-----\n{self.last_private_key[0]}\n-----MODULUS n-----\n{self.last_private_key[1]}")
-                elif self.key_format.get() == "PEM":
-                    pass
-                self.public_key_text.config(state="disabled")
-                self.private_key_text.config(state="disabled")
-                self.step_by_step_text.config(state="disabled")
-    
-    def save_rsa_keys(self, parent: tk.Toplevel):
-        if not self.last_public_key or not self.last_private_key:
-            messagebox.showerror("Error", "No RSA keys generated yet.")
-        else:
-            name = simpledialog.askstring("Save RSA Keys", "Enter a name for the key pair:", initialvalue="Main Key Pair", parent=parent)
-            if not name:
-                messagebox.showerror("Error", "Key pair name cannot be empty.") # type: ignore
-            else:
-                if (self.last_public_key, self.last_private_key) in self.profile.keys.values():
-                    messagebox.showerror("Error", "This RSA key pair already exists in the profile.") # type: ignore
-                else:
-                    if self.profile:
-                        self.profile.keys[name] = (self.last_public_key, self.last_private_key)
-                        self.key_manager_listbox.listbox.insert(tk.END, name)
-                        self.key_manager_listbox.listbox.see(tk.END)
-    
-    def use_rsa_keys(self, parent: tk.Toplevel):
-        """Use the selected RSA keys for encryption/decryption."""
-        selected = self.key_manager_listbox.listbox.curselection()
-        if not selected:
-            messagebox.showerror("Error", "No RSA keys selected.") # type: ignore
-            return
-        key_name = self.key_manager_listbox.listbox.get(selected[0])
-        if self.profile and key_name in self.profile.keys:
-            self.profile.public_key, self.profile.private_key = self.profile.keys[key_name]
-            self.profile.has_set_up_key = True
-            self.loop.create_task(self.transmit_message(self.writer, MessageType.SEND_PUBLIC_KEY, json.dumps({
-                        "exponent": self.profile.public_key[0],
-                        "modulus": self.profile.public_key[1]
-            }).encode("utf-8")))
-            messagebox.showinfo("Success", f"Using RSA keys: {key_name}", parent=parent) # type: ignore
-
-    def remove_rsa_keys(self):
-        selected = self.key_manager_listbox.listbox.curselection()
-        if not selected:
-            messagebox.showerror("Error", "No RSA keys selected.") # type: ignore
-        else:
-            key_name = self.key_manager_listbox.listbox.get(selected[0])
-            if self.profile and key_name in self.profile.keys:
-                key_public, key_private = self.profile.keys[key_name]
-                if (self.profile.public_key == key_public and self.profile.private_key == key_private):
-                    messagebox.showerror("Error", "Cannot remove currently used RSA keys.") # type: ignore
-                elif len(self.profile.keys) == 1:
-                    messagebox.showerror("Error", "Cannot remove the only RSA keys in the profile.") # type: ignore
-                else:
-                    if messagebox.askyesno("Confirm Removal", f"Are you sure you want to remove the RSA keys: {key_name}?"): # type: ignore
-                        del self.profile.keys[key_name]
-                        self.key_manager_listbox.listbox.delete(selected[0])
-                        messagebox.showinfo("Success", f"Removed RSA keys: {key_name}") # type: ignore
-            else:
-                messagebox.showerror("Error", "Selected RSA keys not found in profile.") # type: ignore
-
-    def update_chat(self, event):
-        # TODO: shouldn't it save the current selection in self, for situations
-        # when the selections if not active anymore?
-        selection = self.user_listbox.curselection()
-        if selection:
-            username = self.user_listbox.get(selection[0])
-            chat = self.chats[username]
-            self.chat_display.config(state="normal")
-            self.chat_display.delete("1.0", tk.END)
-            for message in chat:
-                self.chat_display.insert(tk.END, message)
-            self.chat_display.config(state="disabled")
-            self.chat_display.see(tk.END)
-
-
-class PlaceholderEntry(ttk.Entry):
-    """An Entry widget with a placeholder text feature."""
-    def __init__(
-        self,
-        master: tk.Misc | None = None,
-        widget: str | None = None,
-        *,
-        text: str = "",
-        placeholder: str = "",
-        placeholder_foreground: str = "#a0a0a0",
-        placeholder_font: tuple[Any] | str = "TkTextFont",
-        char_limit: int = 0,
-        **kwargs: Any
-    ):
-        # TODO: Add emoji and Ctrl+Del fast deletion support
-        # TODO: Functionality to change style for both normal entry and placeholder?
-        super().__init__(master, widget, **kwargs)
-        self.text = tk.StringVar(self, value=text)
-        self.placeholder = tk.StringVar(self, value=placeholder)
-        self.default_foreground = str(self.cget('foreground'))
-        self.default_font = str(self.cget('font'))
-
-        self.default_char_limit = char_limit
-        self.placeholder_foreground = placeholder_foreground
-        self.placeholder_font = placeholder_font
-        self.is_placeholder_enabled = False
-        self.config(textvariable=self.text)
-        self.set_char_limit(char_limit)
-        self.focus_set_placeholder(None) # type: ignore
-        self.bind('<FocusIn>', self.focus_clear_placeholder) # type: ignore
-        self.bind('<FocusOut>', self.focus_set_placeholder) # type: ignore
-
-    def set(self, text: str):
-        """Set the text."""
-        self.text.set(text)
-
-    def get(self):
-        """Return the text."""
-        if not self.is_placeholder_enabled:
-            return super().get()
-        return ""
-
-    def set_placeholder(self, text: str):
-        """Set the placeholder text."""
-        self.placeholder.set(text)
-
-    def get_placeholder(self) -> str:
-        """Return the placeholder text."""
-        return self.placeholder.get()
-
-    def set_char_limit(self, char_limit: int):
-        """Set the number of characters allowed for the text."""
-        if char_limit > 0:
-            self.char_limit = char_limit
-            if not self.text.trace_info():
-                self.text.trace_add("write", self._callback_char_limit)
-
-    def remove_char_limit(self):
-        if (trace_info := self.text.trace_info()):
-            self.text.trace_remove("write", trace_info[0][1])
-            self.char_limit = 0
-
-    def focus_clear_placeholder(self, event: tk.EventType):
-        if self.is_placeholder_enabled:
-            self.set_char_limit(self.default_char_limit)
-            self.set("")
-            self.configure(foreground=self.default_foreground, font=self.default_font)
-            self.is_placeholder_enabled = False
-
-    def focus_set_placeholder(self, event: tk.EventType):
-        if not self.get():
-            self.remove_char_limit()
-            self.set(self.get_placeholder())
-            self.configure(foreground=self.placeholder_foreground, font=self.placeholder_font)
-            self.is_placeholder_enabled = True
-
-    def _callback_char_limit(self, var: Any, index: Any, mode: Any):
-        value = self.text.get()
-        if len(value) > self.char_limit:
-            self.text.set(value[:self.char_limit])
-
-
-# TODO: `default` argument in order to pass default values in a list or a tuple
-# TODO: direct access to the listbox and it's selection without doing object.listbox.function()
-class ScrollableListboxFrame(ttk.Frame):
-    """A frame with a scrollable Listbox widget."""
-    def __init__(
-        self,
-        master: tk.Misc | None = None,
-        **kwargs: Any
-    ):
-        super().__init__(master, **kwargs)
-        self.hscrollbar = ttk.Scrollbar(self, orient=tk.HORIZONTAL)
-        self.vscrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL)
-        self.listbox = tk.Listbox(
-            self,
-            xscrollcommand=self.hscrollbar.set,
-            yscrollcommand=self.vscrollbar.set
-        )
-        self.hscrollbar.config(command=self.listbox.xview) # type: ignore
-        self.hscrollbar.pack(side=tk.BOTTOM, fill=tk.X)
-        self.vscrollbar.config(command=self.listbox.yview) # type: ignore
-        self.vscrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.listbox.pack(fill=tk.BOTH, expand=True)
-
-class ScrollableTreeviewFrame(ttk.Frame):
-    """A frame with a scrollable Treeview widget."""
-    def __init__(
-        self,
-        master: tk.Misc | None = None,
-        **kwargs: Any
-    ):
-        super().__init__(master, **kwargs)
-        self.hscrollbar = ttk.Scrollbar(self, orient=tk.HORIZONTAL)
-        self.vscrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL)
-        self.treeview = ttk.Treeview(
-            self,
-            xscrollcommand=self.hscrollbar.set,
-            yscrollcommand=self.vscrollbar.set
-        )
-        self.hscrollbar.config(command=self.treeview.xview) # type: ignore
-        self.hscrollbar.grid(row=1, column=0, sticky=tk.EW)
-        self.vscrollbar.config(command=self.treeview.yview) # type: ignore
-        self.vscrollbar.grid(row=0, column=1, sticky=tk.NS)
-        self.treeview.grid(row=0, column=0, sticky=tk.NSEW)
-
-class CustomText(tk.Text):
-    """A custom Text widget that generates events for cursor and selection changes."""
-    def __init__(self, master: tk.Misc | None = None, *args: Any, **kwargs: Any) -> None:
-        super().__init__(master, *args, **kwargs)
-
-        self.widget_name = f"{parent_name if (parent_name := self.winfo_parent()) != '.' else ''}.{self.winfo_name()}"
-        self.this_widget_name = f"{self.widget_name}_proxied"
-
-        self.cursor_anchor = None
-        self.cursor_position = "1.0"
-        self.last_selection_range = None # Tracks the last selection to avoid duplicate events
-
-        self.tk.call("rename", self.widget_name, self.this_widget_name)
-        self.tk.createcommand(self.widget_name, self._proxy) # type: ignore
-
-    def get_cursor_info(self) -> dict[str, str | Any | tuple[Any, ...]]:
-        """Return dictionary with cursor position information"""
-        return {
-            "position": self.cursor_position,
-            "selection": self.tag_ranges("sel") if self.tag_ranges("sel") else None,
-            "anchor": self.cursor_anchor
-        }
-
-    def _proxy(self, *args: Any) -> Any:
-        """
-        Proxy method that intercepts calls to the Text widget,
-        and generates events for cursor and selection changes.
-        """
-        try:
-            # Get state BEFORE the command runs
-            old_pos = self.cursor_position
-            old_sel = self.last_selection_range
-
-            command = (self.this_widget_name,) + args
-            result = self.tk.call(command)
-
-            # Track the selection anchor. This is the most reliable signal for a mouse-based selection start.
-            if args[0:3] == ("mark", "set", "tk::anchor1"):
-                self.cursor_anchor = self.index(args[3])
-
-            # This command clears the selection, e.g., by clicking elsewhere.
-            elif args == ('tag', 'remove', 'sel', '1.0', 'end'):
-                self.cursor_anchor = None
-
-            # This is the definitive command for any cursor movement (arrows, clicks, drags).
-            elif args[0:3] == ("mark", "set", "insert"):
-                # Get state AFTER the command has run
-                new_pos = self.index("insert")
-                new_sel = self.tag_ranges("sel")
-
-                # Compare with state BEFORE the command ran
-                pos_changed = new_pos != old_pos
-                sel_changed = new_sel != old_sel
-
-                # If nothing changed, do nothing. This is the main loop breaker.
-                if not pos_changed and not sel_changed:
-                    return result
-
-                # Update state for the next check
-                self.cursor_position = new_pos
-                self.last_selection_range = new_sel
-
-                if new_sel:
-                    # It's a selection. Fire the event.
-                    if self.cursor_anchor is None:
-                        sel_start, sel_end = new_sel
-                        if self.compare(self.cursor_position, "==", sel_start):
-                            self.cursor_anchor = self.index(sel_end)
-                        else:
-                            self.cursor_anchor = self.index(sel_start)
-                    self.event_generate("<<Selection>>", when="tail")
-                else:
-                    # No selection. It's a cursor change.
-                    self.event_generate("<<CursorChange>>", when="tail")
-            
-            # Text insertion
-            elif args[0] == "insert" and args[1] == "insert":
-                self.cursor_position = self.index("insert")
-                self.event_generate("<<TextInserted>>", when="tail")
-            
-            # Text deletion
-            elif args[0] == "delete":
-                self.cursor_position = self.index("insert")
-                delete_type = "DeleteBefore" if "insert-1c" in args[1] else "DeleteAfter"
-                self.event_generate(f"<<{delete_type}>>", when="tail")
-
-            return result
-        except tk.TclError:
-            # This can happen if the widget is destroyed.
-            return None
 
 def main():
     loop = asyncio.new_event_loop()

@@ -11,6 +11,7 @@
 - [ ] Add `placeholder_style` support to the `PlaceholderEntry` class.
 - [ ] Enhance the `Entry` widget to support emoji and custom key bindings like `Ctrl+Del`.
 - [ ] Add a `pyproject.toml` file for better dependency management and project metadata.
+- [ ] Monkey patch the functions/methods with `Unknown` type hints to `Any` for better type checking.
 
 ## Login Panel
 - [X] Name of the program.

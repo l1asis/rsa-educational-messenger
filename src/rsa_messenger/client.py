@@ -48,7 +48,7 @@ class ClientApp(tk.Tk):
         self.loop = loop
         self.incoming_queue: asyncio.Queue[Any] = asyncio.Queue()
         self.network_client = NetworkClient(self.incoming_queue, self.loop)
-        self.profile: Profile | None = None
+        self.profile: Profile = Profile("", "", None, None)  # Initialize with empty profile
         
         # Singleton windows - created once and reused
         self._prime_factorization_window: PrimeFactorizationWindow | None = None
@@ -264,7 +264,8 @@ class ClientApp(tk.Tk):
 
                 if msg_type == MessageType.SEND_PROFILE:
                     profile_data = json.loads(data)
-                    self.profile = Profile(profile_data["username"], profile_data["name"])
+                    self.profile.username = profile_data["username"]
+                    self.profile.name = profile_data["name"]
                     self.show_waiting_panel()
                 elif msg_type == MessageType.APPROVE_USER:
                     if self.profile:
@@ -790,7 +791,8 @@ class PrimeFinderWindow(tk.Toplevel):
         except ValueError as err:
             messagebox.showerror("Error", f"Invalid input: {err}") # type: ignore
 
-    def set_random_prime(self, entry: tk.Entry, lower: int | str = 3, upper: int | str = 2**1024) -> None:
+    @staticmethod
+    def set_random_prime(entry: tk.Entry, lower: int | str = 3, upper: int | str = 2**1024) -> None:
         """Set a random prime number in the given entry widget."""
         try:
             if isinstance(lower, str):
@@ -805,7 +807,8 @@ class PrimeFinderWindow(tk.Toplevel):
         except Exception as err:
             messagebox.showerror("Error", f"Failed to generate a random prime number: {err}") # type: ignore
 
-    def set_next_prime(self, entry: tk.Entry, number: int | str) -> None:
+    @staticmethod
+    def set_next_prime(entry: tk.Entry, number: int | str) -> None:
         """Set the next prime number after the given number in the entry widget."""
         try:
             if isinstance(number, str):
@@ -816,7 +819,8 @@ class PrimeFinderWindow(tk.Toplevel):
         except Exception as err:
             messagebox.showerror("Error", f"Failed to find the next prime number: {err}")
 
-    def set_prev_prime(self, entry: tk.Entry, number: int | str) -> None:
+    @staticmethod
+    def set_prev_prime(entry: tk.Entry, number: int | str) -> None:
         """Set the previous prime number before the given number in the entry widget."""
         try:
             if isinstance(number, str):
@@ -869,11 +873,11 @@ class RsaKeyGeneratorWindow(tk.Toplevel):
         
         self.first_prime_frame = ttk.Labelframe(content, text="First Prime Number:")
         self.first_prime_entry = ttk.Entry(self.first_prime_frame, style="h5.TEntry")
-        self.first_random_button = ttk.Button(self.first_prime_frame, text="Random", style="h6.TButton", command=lambda: self.set_random_prime(self.first_prime_entry))
+        self.first_random_button = ttk.Button(self.first_prime_frame, text="Random", style="h6.TButton", command=lambda: PrimeFinderWindow.set_random_prime(self.first_prime_entry))
 
         self.second_prime_frame = ttk.Labelframe(content, text="Second Prime Number:")
         self.second_prime_entry = ttk.Entry(self.second_prime_frame, style="h5.TEntry")
-        self.second_random_button = ttk.Button(self.second_prime_frame, text="Random", style="h6.TButton", command=lambda: self.set_random_prime(self.second_prime_entry))
+        self.second_random_button = ttk.Button(self.second_prime_frame, text="Random", style="h6.TButton", command=lambda: PrimeFinderWindow.set_random_prime(self.second_prime_entry))
 
         self.key_manager_frame = ttk.Labelframe(content, text="Key Manager:")
         self.key_manager_listbox = ScrollableListboxFrame(self.key_manager_frame)
@@ -985,6 +989,8 @@ class RsaKeyGeneratorWindow(tk.Toplevel):
                         self.master.profile.keys[name] = (self.last_public_key, self.last_private_key)
                         self.key_manager_listbox.listbox.insert(tk.END, name)
                         self.key_manager_listbox.listbox.see(tk.END)
+                else:
+                    messagebox.showerror("Error", "No profile found to save the RSA keys.")
     
     def use_rsa_keys(self):
         """Use the selected RSA keys from the key manager."""
@@ -996,7 +1002,7 @@ class RsaKeyGeneratorWindow(tk.Toplevel):
         if self.master.profile and key_name in self.master.profile.keys:
             self.master.profile.public_key, self.master.profile.private_key = self.master.profile.keys[key_name]
             self.master.profile.has_set_up_key = True
-            self.loop.create_task(self.master.transmit_message(self.master.network_client.writer, MessageType.SEND_PUBLIC_KEY, json.dumps({
+            self.loop.create_task(self.master.transmit_message(MessageType.SEND_PUBLIC_KEY, json.dumps({
                         "exponent": self.master.profile.public_key[0],
                         "modulus": self.master.profile.public_key[1]
             }).encode("utf-8")))

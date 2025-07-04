@@ -5,24 +5,24 @@ from typing import Literal, Any, overload
 class JSONBytesEncoder(json.JSONEncoder):
     """Custom JSON encoder that converts bytes objects to hex strings."""
     
-    def default(self, obj: Any) -> Any:
-        if isinstance(obj, bytes):
+    def default(self, o: Any) -> Any:
+        if isinstance(o, bytes):
             return {
                 "__type__": "bytes",
-                "__value__": obj.hex()
+                "__value__": o.hex()
             }
-        return super().default(obj)
+        return super().default(o)
 
 class JSONBytesDecoder(json.JSONDecoder):
     """Custom JSON decoder that converts hex strings back to bytes objects."""
     
     def __init__(self, *args: Any, **kwargs: Any):
-        super().__init__(object_hook=self.object_hook, *args, **kwargs)
+        def object_hook(obj: dict[str, Any]) -> Any:
+            if "__type__" in obj and obj["__type__"] == "bytes":
+                return bytes.fromhex(obj["__value__"])
+            return obj
+        super().__init__(object_hook=object_hook, *args, **kwargs)
     
-    def object_hook(self, obj: dict[str, Any]) -> Any:
-        if "__type__" in obj and obj["__type__"] == "bytes":
-            return bytes.fromhex(obj["__value__"])
-        return obj
 
 def center_window(win: tk.Tk | tk.Toplevel) -> None:
     """Centers a tkinter window."""

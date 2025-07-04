@@ -20,7 +20,7 @@ class ClientWindow(enum.Flag):
     SETTINGS = enum.auto()
     RSA_KEY_GENERATOR = enum.auto()
     PRIME_NUMBERS_FINDER = enum.auto()
-    PRIME_FACTORIZATOR = enum.auto()
+    PRIME_FACTORIZATION = enum.auto()
     CIPHER_VIEWER = enum.auto()
     CIPHER_ATTACKER = enum.auto()
     ABOUT = enum.auto()

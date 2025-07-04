@@ -15,7 +15,7 @@ import tkinter.font as tkFont
 from .constants import *
 from .crypto import *
 from .translations import TRANSLATIONS
-from .utils import get_center_geometry, shorten_string, JSONBytesEncoder, JSONBytesDecoder
+from .utils import get_center_geometry, shorten_string, JSONBytesEncoder, JSONBytesDecoder, format_time
 
 LOGGING_FORMAT = u"%(asctime)-28s %(filename)-20s %(levelname)s: %(message)s"
 
@@ -127,13 +127,156 @@ class ClientApp(tk.Tk):
     def on_close(self):
         ...
 
-    def open_prime_factorizator(self):
+    def factorize_number(self, *args: Any):
+        """Factorize a number using the selected algorithm."""
+        number: str = args[0]
+        algorithm: str = args[1]
+        if not number or not number.isdecimal():
+            messagebox.showerror("Error", "Please enter a valid number.") # type: ignore
+            return
+        elif (n := int(number)) < 2:
+            messagebox.showerror("Error", "Number must be greater than 1.") # type: ignore
+            return
+
+        self.result_text.configure(state="normal")
+        self.result_text.delete("1.0", tk.END)
+        try:
+            factors_dict = {}
+            # TODO: Use sympy's `multiple` argument by adding checkbox to the menubar.
+            if algorithm == "Trial Division":
+                factors_dict = factorint(n, use_trial=True, use_rho=False, use_pm1=False, use_ecm=False) # type: ignore
+            elif algorithm == "Pollard's Rho":
+                factors_dict = factorint(n, use_trial=False, use_rho=True, use_pm1=False, use_ecm=False) # type: ignore
+            elif algorithm == "Pollard's P-1":
+                factors_dict = factorint(n, use_trial=False, use_rho=False, use_pm1=True, use_ecm=False) # type: ignore
+            elif algorithm == "Elliptic Curve Factorization":
+                factors_dict = factorint(n, use_trial=False, use_rho=False, use_pm1=False, use_ecm=True) # type: ignore
+            elif algorithm == "Quadratic Sieve":
+                # NOTE: factorint does not have a flag for QS.
+                raise ValueError("Quadratic Sieve is not currently implemented.")
+            else:
+                raise ValueError("Unknown algorithm selected.")
+
+            factors = []
+            for factor, exponent in factors_dict.items():
+                factors.extend([factor] * exponent)
+            factors.sort()
+
+            self.result_text.insert(tk.END, ", ".join(map(str, factors)))
+        except Exception as e:
+            logger.error(f"Error during factorization: {e}")
+            traceback.print_exc()
+            messagebox.showerror("Error", f"An error occurred during factorization: {e}")
+
+        self.result_text.configure(state="disabled")
+
+    def set_time_to_factor(self, *args: Any):
+        """Estimate the time to factor a number using the selected algorithm."""
+        number = self.any_number.get()
+        algorithm = self.algorithm.get()
+        if number and number.isdecimal():
+            n = int(number)
+            ops = 0
+            if algorithm == "Trial Division":
+                ops = trial_division_estimate_ops(n)
+            elif algorithm == "Pollard's Rho":
+                ops = pollard_rho_estimate_ops(n)
+            elif algorithm == "Pollard's P-1":
+                ops = pollard_p_1_estimate_ops(n)
+            elif algorithm == "Elliptic Curve Factorization":
+                ops = elliptic_curve_estimate_ops(n)
+            elif algorithm == "Quadratic Sieve":
+                ops = quadratic_sieve_estimate_ops(n)
+            
+            seconds = estimate_time(ops, ops_per_sec=1.5e11)
+
+            self.time_to_factor_text.configure(state="normal")
+            self.time_to_factor_text.delete("1.0", tk.END)
+            self.time_to_factor_text.insert(tk.END, format_time(seconds, "advanced", auto_detect=True))
+            self.time_to_factor_text.configure(state="disabled")
+
+    def open_prime_factorization(self):
+        """Open the Prime Factorization window."""
         win = tk.Toplevel(self)
         win.title("Prime Factorization")
-        ttk.Label(win, text="Prime Factorization Tool (Coming Soon)", style="h4.TLabel").pack(padx=20, pady=20)
-        ttk.Button(win, text="Close", command=win.destroy).pack(pady=10)
+        win.geometry(get_center_geometry(480, 600, self.winfo_screenwidth(), self.winfo_screenheight()))
+        
+        self.current_window |= ClientWindow.PRIME_FACTORIZATION
+
+        self.any_number = tk.StringVar()
+        self.any_number.trace_add("write", self.set_time_to_factor)
+        self.show_step_by_step = tk.BooleanVar(value=False)
+        self.algorithm = tk.StringVar(value="Trial Division")
+
+        menubar = tk.Menu(win)
+        win.config(menu=menubar)
+        settings_menu = tk.Menu(menubar, tearoff=False)
+        settings_menu.add_checkbutton(
+            label="Show step by step",
+            variable=self.show_step_by_step,
+        )
+        menubar.add_cascade(menu=settings_menu, label="Settings")
+        
+        content = ttk.Frame(win, padding=(3,3,12,12))
+
+        self.prime_factorization_label = ttk.Label(content, text="Prime Factorization Tool", style="h4.TLabel")
+        self.prime_factorization_label.grid(row=0, column=0, sticky="w")
+
+        self.any_number_frame = ttk.Labelframe(content, text="Any number")
+        self.any_number_entry = ttk.Entry(self.any_number_frame, style="h5.TEntry", textvariable=self.any_number)
+        self.any_number_copy = ttk.Button(self.any_number_frame, text="Copy", style="h6.TButton", command=lambda: self.any_number_entry.clipboard_clear() or self.any_number_entry.clipboard_append(self.any_number_entry.get()))
+        self.any_number_paste = ttk.Button(self.any_number_frame, text="Paste", style="h6.TButton", command=lambda: self.any_number_entry.insert(tk.END, self.any_number_entry.clipboard_get() if self.any_number_entry.clipboard_get() else ""))
+        self.any_number_clear = ttk.Button(self.any_number_frame, text="Clear", style="h6.TButton", command=lambda: self.any_number_entry.delete(0, tk.END))
+        
+        self.algorithm_frame = ttk.Labelframe(content, text="Algorithm")
+        self.algorithm_combobox = ttk.Combobox(self.algorithm_frame, textvariable=self.algorithm, values=["Trial Division", "Pollard's Rho", "Pollard's P-1", "Elliptic Curve Factorization", "Quadratic Sieve"], state="readonly", style="h5.TCombobox")
+        self.algorithm_combobox.bind("<<ComboboxSelected>>", lambda e: self.set_time_to_factor())
+
+        self.time_to_factor_frame = ttk.Labelframe(content, text="Approximate time to factor")
+        self.time_to_factor_text = tk.Text(self.time_to_factor_frame, height=2, wrap="word", font=("Consolas", 11), state="disabled")
+
+        self.factorize_button = ttk.Button(content, text="Factorize", style="h6.TButton", command=lambda: self.factorize_number(self.any_number_entry.get(), self.algorithm.get()))
+
+        self.result_frame = ttk.Labelframe(content, text="Result")
+        self.result_text = tk.Text(self.result_frame, height=10, wrap="word", font=("Consolas", 11))
+
+        self.step_by_step_frame = ttk.Labelframe(content, text="Step by Step:")
+        self.step_by_step_text = tk.Text(self.step_by_step_frame, height=10, wrap="word", font=("Consolas", 11))
+
+        # Layouts
+        content.grid(row=0, column=0, sticky="nsew")
+        self.prime_factorization_label.grid(row=0, column=0, sticky="w")
+        self.any_number_entry.grid(row=0, column=0, sticky="ew")
+        self.any_number_copy.grid(row=0, column=1, sticky="ew")
+        self.any_number_paste.grid(row=0, column=2, sticky="ew")
+        self.any_number_clear.grid(row=0, column=3, sticky="ew")
+        self.any_number_frame.grid(row=1, column=0, columnspan=4, sticky="ew")
+        self.algorithm_combobox.grid(row=0, column=0, sticky="ew")
+        self.algorithm_frame.grid(row=2, column=0, columnspan=3, sticky="ew")
+        self.factorize_button.grid(row=2, column=3, columnspan=4, sticky="ew")
+        self.time_to_factor_frame.grid(row=3, column=0, columnspan=4, sticky="ew")
+        self.time_to_factor_text.grid(row=0, column=0, columnspan=4, sticky="ew")
+        self.result_text.grid(row=0, column=0, sticky="nsew")
+        self.result_frame.grid(row=4, column=0, columnspan=4, sticky="nsew")
+        self.step_by_step_text.grid(row=0, column=0, sticky="nsew")
+        self.step_by_step_frame.grid(row=5, column=0, columnspan=4, sticky="nsew")
+
+        # Configure grid weights
+        win.columnconfigure(0, weight=1)
+        win.rowconfigure(0, weight=1)
+        content.columnconfigure(0, weight=1)
+        content.rowconfigure(4, weight=1)
+        content.rowconfigure(5, weight=1)
+        self.result_frame.columnconfigure(0, weight=1)
+        self.result_frame.rowconfigure(0, weight=1)
+        self.time_to_factor_frame.columnconfigure(0, weight=1)
+        self.step_by_step_frame.columnconfigure(0, weight=1)
+        self.step_by_step_frame.rowconfigure(0, weight=1)
+        self.any_number_frame.columnconfigure(0, weight=1)
+        self.algorithm_frame.columnconfigure(0, weight=1)
 
     def open_prime_numbers_finder(self):
+        """Open the Prime Numbers Finder window."""
         win = tk.Toplevel(self)
         win.title("Find Prime Numbers")
         win.geometry(get_center_geometry(480, 600, self.winfo_screenwidth(), self.winfo_screenheight()))
@@ -241,6 +384,7 @@ class ClientApp(tk.Tk):
 
 
     def open_rsa_key_generator(self):
+        """Open the RSA Key Generator window."""
         # TODO: "Show" button for the already existing keys in the manager.
         win = tk.Toplevel(self)
         win.title("RSA Key Generator")
@@ -1039,7 +1183,7 @@ class ClientApp(tk.Tk):
         self.toolkit_menu = tk.Menu(self.menubar, tearoff=False)
         self.toolkit_menu.add_command(
             label="Prime Factorization",
-            command=self.open_prime_factorizator
+            command=self.open_prime_factorization
         )
         self.toolkit_menu.add_command(
             label="Find Prime Numbers",
@@ -1304,7 +1448,10 @@ class ClientApp(tk.Tk):
                 else:
                     type_str = "probable prime"
             else:
-                type_str = "composite"
+                if number < 2:
+                    type_str = "neither prime nor composite"
+                else:
+                    type_str = "composite"
             messagebox.showinfo("Result", f"{shorten_string(str(number), 10, 10)} is a {type_str} number.") # type: ignore
         except ValueError as err:
             messagebox.showerror("Error", f"Invalid input: {err}") # type: ignore

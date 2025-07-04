@@ -3,18 +3,118 @@ crypto.py - Cryptographic and number-theoretic functions for RSA Messenger
 """
 from math import cbrt, ceil, exp, floor, isqrt, log, log2, sqrt
 from secrets import randbelow
-from typing import Union, overload, Literal
-from .utils import advanced_format_seconds
+from typing import Union, overload, Literal, Generator
 
-from sympy import prevprime, nextprime, randprime  # type: ignore
+from sympy import prevprime, nextprime, randprime, factorint  # type: ignore
 # NOTE: Use gmpy for more efficient primality testing?
 
-def prev_prime(n: int, ith: int = 0) -> int:
-    """Find the previous prime number less than or equal to n after skipping ith primes. Wraps sympy's prevprime."""
-    return prevprime(n, ith) # type: ignore
+def sieve_basic(n: int) -> list[int]:
+    """Basic Sieve of Eratosthenes to generate all prime numbers up to a given limit."""
+    if n < 2:
+        return []
+    elif n == 2:
+        return [2]
+    
+    size = (n - 1) // 2
+    is_prime = [True] * size
+    
+    for i in range(0, size):
+        if is_prime[i]:
+            prime = 2 * i + 3
+            start = prime * prime
+            if start <= n:
+                for j in range((start - 3) // 2, size, prime):
+                    is_prime[j] = False
+
+    return [2] + [2 * i + 3 for i in range(size) if is_prime[i]]
+
+def sieve_basic_odd(n: int) -> list[int]:
+    """Basic Sieve of Eratosthenes optimized for odd numbers only."""
+    if n < 2:
+        return []
+    if n == 2:
+        return [2]
+    
+    size = (n - 1) // 2
+    is_prime = [True] * size
+    
+    sqrt_n = isqrt(n)
+    for i in range(size):
+        if is_prime[i]:
+            prime = 2 * i + 3
+            if prime > sqrt_n:
+                break
+            start = prime * prime
+            if start <= n:
+                start_idx = (start - 3) // 2
+                step = prime
+                for j in range(start_idx, size, step):
+                    is_prime[j] = False
+    
+    return [2] + [2 * i + 3 for i in range(size) if is_prime[i]]
+
+def sieve_segmented(limit: int, block_size: int = 32768) -> list[int]:
+    """Segmented Sieve of Eratosthenes to generate all prime numbers up to a given limit."""
+    if limit < 2:
+        return []
+    elif limit == 2:
+        return [2]
+    
+    sqrt_limit = isqrt(limit)
+    
+    base_primes = sieve_basic(sqrt_limit)
+    segment_size = max(sqrt_limit, block_size)
+    primes = list(base_primes)
+    
+    low = sqrt_limit + 1
+    high = min(low + segment_size - 1, limit)
+    
+    while low <= limit:
+        if high > limit:
+            high = limit
+        
+        segment = [True] * (high - low + 1)
+        
+        for prime in base_primes:
+            start = max(prime * prime, (low + prime - 1) // prime * prime)
+            for j in range(start, high + 1, prime):
+                segment[j - low] = False
+        
+        primes.extend(p for p in range(low, high + 1) if segment[p - low] and p > sqrt_limit)
+        # primes.extend(low + i for i, is_prime in enumerate(segment) if is_prime and low + i > sqrt_limit)
+
+        low = high + 1
+        high = min(low + segment_size - 1, limit)
+    
+    return primes
+
+def sieve_incremental() -> Generator[int, None, None]:
+    """Incremental Sieve of Eratosthenes implemented as a generator."""
+    yield 2
+    
+    composites: dict[int, int] = {}
+    candidate = 3
+    
+    while True:
+        if candidate not in composites:
+            yield candidate
+            composites[candidate * candidate] = candidate
+        else:
+            prime = composites.pop(candidate)
+            next_multiple = candidate + 2 * prime
+            while next_multiple in composites:
+                next_multiple += 2 * prime
+            
+            composites[next_multiple] = prime
+        
+        candidate += 2
+
+def prev_prime(n: int) -> int:
+    """Find the previous prime number less than n. Wraps sympy's prevprime."""
+    return prevprime(n) # type: ignore
 
 def next_prime(n: int, ith: int) -> int:
-    """Find the next prime number greater than or equal to n after skipping ith primes. Wraps sympy's nextprime."""
+    """Find the next prime number greater than n after skipping ith primes. Wraps sympy's nextprime."""
     return nextprime(n, ith) # type: ignore
 
 def is_prime(n: int) -> bool:
@@ -446,15 +546,58 @@ def enhanced_baillie_psw_test(n: int) -> bool:
             u, v, q = div2mod(p*u + v, n), div2mod(d*u + p*v, n), (q1 * q) % n
     return u == 0 and (v - 2*q1) % n == 0 and q_prev % n == (q1 * jacobi_symbol(q1, n)) % n # type: ignore
 
+def trial_division_estimate_ops(n: int) -> float:
+    """Estimate the number of operations required for trial division to factor a number n."""
+    return sqrt(n)
+
+def pollard_rho_estimate_ops(n: int) -> float:
+    """
+    Estimate the number of operations required for Pollard's Rho algorithm to factor a number n.
+    Pollard's Rho has expected complexity O(sqrt(p)), where p is the smallest prime factor of n.
+    For semiprimes (n = p * q, p < q), this is roughly O(n**0.25).
+    """
+    return n**0.25
+
+def pollard_p_1_estimate_ops(n: int) -> float:
+    """
+    Estimate the number of operations required for Pollard's P-1 algorithm to factor a number n.
+    The expected complexity is O(B), where B is a smoothness bound (often taken as exp(sqrt(log n * log log n))).
+    """
+    # Standard smoothness bound for stage 1
+    B = exp(sqrt(log(n) * log(log(n))))
+    return B
+
+def elliptic_curve_estimate_ops(n: int) -> float:
+    """
+    Estimate the number of operations required for the Elliptic Curve Method (ECM) to factor a number n.
+    The expected complexity is L_p[1/2, sqrt(2)], where p is the smallest prime factor of n:
+        exp((sqrt(2) + o(1)) * sqrt(ln p * ln ln p))
+    For semiprimes (n = p * q, p < q), p ≈ sqrt(n).
+    """
+    p = sqrt(n) # p ≈ sqrt(n) as an estimate for the smallest factor
+    ln_p = log(p)
+    ln_ln_p = log(ln_p)
+    return exp(sqrt(2) * sqrt(ln_p * ln_ln_p))
+
+def quadratic_sieve_estimate_ops(n: int) -> float:
+    """
+    Estimate the number of operations required for the Quadratic Sieve algorithm to factor a number n.
+    The expected complexity is L_n[1/2, c] for some constant c, typically around 1.92.
+    """
+    ln_n = log(n)
+    ln_ln_n = log(ln_n)
+    return exp(1.92 * sqrt(ln_n * ln_ln_n))  # Using c ≈ 1.92 as a rough estimate
+
 def gnfs_estimate_ops(n: int) -> float:
     """Estimate the number of operations required for the General Number Field Sieve (GNFS) for a number n."""
     return exp(cbrt((64/9)*(ln_n:=log(n))*log(ln_n)**2))
 
-def gnfs_estimate_time(n: int, ops_per_sec: float = 1e12) -> str:
-    """Estimate the time required for the General Number Field Sieve (GNFS) for a number n."""
-    ops = gnfs_estimate_ops(n)
+def estimate_time(ops: float, ops_per_sec: float = 1e9) -> float:
+    """Estimate the time in seconds for a given number of operations."""
+    if ops_per_sec <= 0:
+        return float('inf')
     seconds = ops / ops_per_sec
-    return advanced_format_seconds(seconds, auto_detect=True) # type: ignore
+    return seconds
 
 def rsa_generate_keys(p: int, q: int) -> tuple[tuple[int, int], tuple[int, int]]:
     """Generate RSA public and private keys from two prime numbers p and q."""
@@ -538,6 +681,7 @@ def int_to_bytes(integer: int, length: int = 0, byteorder: Literal['little', 'bi
         return integer.to_bytes(length, byteorder, signed=signed)
     return integer.to_bytes((integer.bit_length()+7)//8, byteorder, signed=signed)
 
+
 if __name__ == "__main__":
 
     message = str_to_int("\x01\x01\x00\x00The moon reflects pretty bright today. ASDASKdoasdoaksdaksda\x00\x00\x01\x00\x00\x00")
@@ -557,3 +701,40 @@ if __name__ == "__main__":
         print(f"\t### Decrypted message as string:\n{int_to_str(decrypted_message)}")
         print(f"\t### Decrypted message as string (repr):\n{repr(int_to_str(decrypted_message))}")
         print(f"\t### Asserting original message equals decrypted message: {message == decrypted_message}")
+    
+    print("\nPerformance tests for different sieve methods and numbers:")
+    print(f"Testing with upper limit: {(large_num := 2**20-1)} (1048575)")
+
+    import time
+    from sympy import sieve
+
+    start = time.perf_counter()
+    r0 = tuple(sieve.primerange(large_num))
+    t0 = time.perf_counter() - start
+
+    start = time.perf_counter()
+    r1 = sieve_basic(large_num)
+    t1 = time.perf_counter() - start
+    
+    start = time.perf_counter()
+    r2 = sieve_basic_odd(large_num)
+    t2 = time.perf_counter() - start
+
+    start = time.perf_counter()
+    r3: list[int] = []
+    for p in sieve_incremental():
+        if p > large_num:
+            break
+        r3.append(p)
+    t3 = time.perf_counter() - start
+
+    start = time.perf_counter()
+    r4 = sieve_segmented(large_num)
+    t4 = time.perf_counter() - start
+
+    print(f"  SymPy's sieve:        {t0:.6f} seconds -> {len(r0)} primes found")
+    print(f"  Basic method:         {t1:.6f} seconds -> {len(r1)} primes found")
+    print(f"  Optimized method:     {t2:.6f} seconds -> {len(r2)} primes found")
+    print(f"  Incremental method:   {t3:.6f} seconds -> {len(r3)} primes found")
+    print(f"  Segmented method:     {t4:.6f} seconds -> {len(r4)} primes found")
+    print(f"All methods returned the same result: {r1 == r2 == r3 == r4}")
